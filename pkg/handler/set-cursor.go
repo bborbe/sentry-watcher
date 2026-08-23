@@ -42,8 +42,11 @@ func (h *setCursorHandler) ServeHTTP(
 	resp http.ResponseWriter,
 	req *http.Request,
 ) error {
-	shortID := mux.Vars(req)["shortId"]
-	date := mux.Vars(req)["date"]
+	// mux.Vars reads the URL-vars map from the request context; read it once into
+	// a local so both fields come from the same map (no repeated context lookups).
+	vars := mux.Vars(req)
+	shortID := vars["shortId"]
+	date := vars["date"]
 	if shortID == "" || len(shortID) > 64 {
 		return libhttp.WrapWithStatusCode(
 			errors.Errorf(ctx, "invalid {shortId} path variable"),

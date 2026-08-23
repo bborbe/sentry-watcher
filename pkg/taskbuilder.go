@@ -102,6 +102,8 @@ var sampleTemplateData = taskTemplateData{
 // rendering against sample data, so a template referencing an unknown field
 // fails fast at startup rather than silently skipping every emit. Empty text
 // returns (nil, nil) ⇒ the built-in default is used.
+//
+// Paired with ParseTaskTemplateDefault per go-parse/paired-parse-and-parsedefault.
 func ParseTaskTemplate(ctx context.Context, name, text string) (*template.Template, error) {
 	if text == "" {
 		return nil, nil
@@ -114,6 +116,23 @@ func ParseTaskTemplate(ctx context.Context, name, text string) (*template.Templa
 		return nil, errors.Wrapf(ctx, err, "validate %s template %q", name, text)
 	}
 	return tmpl, nil
+}
+
+// ParseTaskTemplateDefault parses text as a named Go text/template (same core
+// logic as ParseTaskTemplate) but returns the fallback template on parse or
+// validation failure instead of an error — for call sites that prefer a safe
+// default over fail-fast. Paired with ParseTaskTemplate per
+// go-parse/paired-parse-and-parsedefault.
+func ParseTaskTemplateDefault(
+	ctx context.Context,
+	name, text string,
+	fallback *template.Template,
+) *template.Template {
+	tmpl, err := ParseTaskTemplate(ctx, name, text)
+	if err != nil {
+		return fallback
+	}
+	return tmpl
 }
 
 // renderTemplate executes tmpl (or fallback when tmpl is nil) against data and

@@ -198,4 +198,21 @@ var _ = Describe("pkg.BuildCreateCommand", func() {
 		_, err := pkg.ParseTaskTemplate(ctx, "body", "{{.Nope}}")
 		Expect(err).To(HaveOccurred())
 	})
+
+	It("ParseTaskTemplateDefault returns the fallback on a missing-field template", func() {
+		fallback := mustParse("body", "fallback body")
+		out := pkg.ParseTaskTemplateDefault(ctx, "body", "{{.Nope}}", fallback)
+		Expect(out).To(Equal(fallback))
+	})
+
+	It("ParseTaskTemplateDefault returns the parsed template when valid", func() {
+		fallback := mustParse("body", "fallback body")
+		out := pkg.ParseTaskTemplateDefault(
+			ctx,
+			"title",
+			"Sentry {{.ShortID}} on {{.Date}}",
+			fallback,
+		)
+		Expect(out).NotTo(Equal(fallback))
+	})
 })
