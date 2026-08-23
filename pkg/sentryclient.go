@@ -53,9 +53,9 @@ const maxRetryAfter = 60 * time.Second
 // misbehaving upstream that never terminates its Link header.
 const maxPages = 1000
 
-//counterfeiter:generate -o ../mocks/sentry_client.go --fake-name SentryClient . SentryClient
-
 // SentryClient is the upstream-source surface for the sentry-watcher.
+//
+//counterfeiter:generate -o ../mocks/sentry_client.go --fake-name SentryClient . SentryClient
 type SentryClient interface {
 	// UnresolvedIssues returns the org's unresolved issues, paged through to
 	// exhaustion. Returns an error on request failure, rate-limit exhaustion, or

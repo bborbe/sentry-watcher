@@ -53,10 +53,10 @@ type application struct {
 	SeedDate     string           `required:"false" arg:"seed-date"     env:"SEED_DATE"     usage:"Optional UTC date (2006-01-02) to seed the cursor with on cold-start instead of the current state; makes the first poll emit a task for every in-scope active issue dated after it. Empty = seed to current, emit nothing."`
 	KafkaBrokers libkafka.Brokers `required:"true"  arg:"kafka-brokers" env:"KAFKA_BROKERS" usage:"Comma-separated Kafka broker list"`
 
-	SentryURL         string `required:"false" arg:"sentry-url"          env:"SENTRY_URL"          usage:"Base URL of the Sentry org"                                                         default:"https://bborbe.sentry.io"`
-	SentryOrg         string `required:"false" arg:"sentry-org"          env:"SENTRY_ORG"          usage:"Sentry org slug"                                                                    default:"bborbe"`
-	SentryAPIToken    string `required:"true"  arg:"sentry-api-token"    env:"SENTRY_API_TOKEN"    usage:"Sentry REST API Bearer token"                                                                                               display:"length"`
-	SentryProjects    string `required:"true"  arg:"sentry-projects"     env:"SENTRY_PROJECTS"     usage:"Comma-separated per-cluster project slug allowlist (hell,nuke-dev,nuke-prod,quant)" default:"hell,nuke-dev,nuke-prod,quant"`
+	SentryURL      string `required:"false" arg:"sentry-url"       env:"SENTRY_URL"       usage:"Base URL of the Sentry org"                                                         default:"https://bborbe.sentry.io"`
+	SentryOrg      string `required:"false" arg:"sentry-org"       env:"SENTRY_ORG"       usage:"Sentry org slug"                                                                    default:"bborbe"`
+	SentryAPIToken string `required:"true"  arg:"sentry-api-token" env:"SENTRY_API_TOKEN" usage:"Sentry REST API Bearer token"                                                                                               display:"length"`
+	SentryProjects string `required:"true"  arg:"sentry-projects"  env:"SENTRY_PROJECTS"  usage:"Comma-separated per-cluster project slug allowlist (hell,nuke-dev,nuke-prod,quant)" default:"hell,nuke-dev,nuke-prod,quant"`
 
 	TaskAssignee string `required:"true"  arg:"task-assignee" env:"TASK_ASSIGNEE" usage:"Frontmatter assignee for published sentry-issue-analyzer tasks"                                                                                                  default:"sentry-issue-analyzer"`
 	TaskStatus   string `required:"true"  arg:"task-status"   env:"TASK_STATUS"   usage:"Frontmatter status for published sentry-issue-analyzer tasks"                                                                                                    default:"in_progress"`
