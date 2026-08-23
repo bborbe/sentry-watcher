@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- docs: correct the Deployment section — sentry-watcher deploys as a nuke-repo
+  unit via the `bborbe/helm` sentry-watcher chart (go-version-notifier pattern),
+  not the maintainer Helm chart.
 - feat: initial release. Polls the bborbe Sentry org for unresolved issues with
   activity in the last 24h (plain REST + Bearer token) and emits one
   `CreateTaskCommand` per `(short-id, date)` titled
