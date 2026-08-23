@@ -103,15 +103,20 @@ glog lines mirror metric events.
 
 ## Deployment
 
-Deployed via the `bborbe/maintainer` Helm chart (`watchers:` entry), configured
-per stage in the maintainer values; the chart mounts a PVC at `/data` for the
-cursor. `make buca` builds + pushes `docker.io/bborbe/sentry-watcher:vX.Y.Z`;
-the image is mirrored into the nuke registry and rolled via keel. The
-`SENTRY_API_TOKEN` secret is teamvault-rendered out-of-band and referenced by
-name. Per the Watcher Writing Guide single-stage rule, deploy the daily
-00:00Z scan in ONE stage only (prod canonical; enable dev only transiently for
-e2e) — both stages' controllers materialize into the same Personal vault and
-would fight over identical task ids.
+Deployed as a **nuke-repo unit**, mirroring the `go-version-notifier` pattern
+(the non-GitHub watcher analog). `make buca` builds + pushes
+`docker.io/bborbe/sentry-watcher:vX.Y.Z`; the image is then mirrored into the
+nuke registry (`make mirror`) and applied via the unit's helmfile
+(`make apply`), which installs the `sentry-watcher` chart from
+`bborbe/helm` (a `common`-library chart, `githubAuth:false`) as its own Helm
+release. The chart mounts a PVC at `/data` for the cursor. `SENTRY_API_TOKEN`
+is teamvault-rendered out-of-band into a `sentry-watcher` Secret and wired via
+`watcher.secretEnv` (no PEM_KEY — non-GitHub watcher).
+
+Per the Watcher Writing Guide single-stage rule, deploy the daily 00:00Z scan
+in ONE stage only (prod canonical; enable dev only transiently for e2e) — both
+stages' controllers materialize into the same Personal vault and would fight
+over identical task ids.
 
 ## End-to-End Verification (force an emit)
 
