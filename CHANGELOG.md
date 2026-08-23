@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- feat: schedule the scan with a real cron expression via `github.com/bborbe/cron`
+  instead of a 24h interval ticker. The old `time.NewTicker` started at process
+  start drifted the daily poll to the last pod restart; the new `CRON_EXPRESSION`
+  (default `0 0 0 * * ?` = daily 00:00Z, strict 6-field seconds-first — a 5-field
+  expression is rejected at startup) anchors it to wall clock. Replaces the
+  `POLL_INTERVAL` env var. The first scan fires at the next match; manual scans
+  still go through `POST /trigger`.
+
 - fix: stop pagination when Sentry's Link header marks the next link
   `results="false"` — Sentry still emits a `rel="next"` URL on the final page,
   and following the phantom cursor re-fetched the same empty page forever

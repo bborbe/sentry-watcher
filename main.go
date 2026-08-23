@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bborbe/cron"
 	"github.com/bborbe/cqrs/base"
 	"github.com/bborbe/errors"
 	libhttp "github.com/bborbe/http"
@@ -48,7 +49,7 @@ type application struct {
 
 	Listen       string           `required:"false" arg:"listen"        env:"LISTEN"        usage:"HTTP listen address (healthz/readiness/metrics)"                                                                                                                                                                            default:":9090"`
 	Stage        string           `required:"true"  arg:"stage"         env:"STAGE"         usage:"Deployment stage (dev|prod)"`
-	PollInterval string           `required:"false" arg:"poll-interval" env:"POLL_INTERVAL" usage:"Poll interval (Go duration)"                                                                                                                                                                                                default:"24h"`
+	CronExpression string          `required:"false" arg:"cron-expression" env:"CRON_EXPRESSION" usage:"Cron expression (6-field, seconds-first) determining when the scan runs; uses the pod's local timezone (UTC by default)"                                                                                                default:"0 0 0 * * ?"`
 	CursorPath   string           `required:"false" arg:"cursor-path"   env:"CURSOR_PATH"   usage:"Cursor persistence path (mount a PVC)"                                                                                                                                                                                      default:"/data/cursor.json"`
 	SeedDate     string           `required:"false" arg:"seed-date"     env:"SEED_DATE"     usage:"Optional UTC date (2006-01-02) to seed the cursor with on cold-start instead of the current state; makes the first poll emit a task for every in-scope active issue dated after it. Empty = seed to current, emit nothing."`
 	KafkaBrokers libkafka.Brokers `required:"true"  arg:"kafka-brokers" env:"KAFKA_BROKERS" usage:"Comma-separated Kafka broker list"`
@@ -73,9 +74,12 @@ type application struct {
 }
 
 func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
-	pollInterval, err := time.ParseDuration(a.PollInterval)
-	if err != nil {
-		return errors.Wrapf(ctx, err, "parse poll interval %q", a.PollInterval)
+	// Fail fast on a malformed expression rather than surfacing it from inside
+	// the cron loop at the first schedule tick. CreateDefaultParser expects
+	// 6-field, seconds-first expressions (e.g. "0 0 0 * * ?"); a 5-field
+	// "0 0 * * *" silently means "every hour at second 0".
+	if _, err := cron.CreateDefaultParser().Parse(a.CronExpression); err != nil {
+		return errors.Wrapf(ctx, err, "parse cron expression %q", a.CronExpression)
 	}
 
 	if a.SeedDate != "" {
@@ -135,12 +139,22 @@ func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 	)
 
 	glog.V(2).Infof(
-		"sentry-watcher starting stage=%s interval=%s listen=%s",
-		a.Stage, a.PollInterval, a.Listen,
+		"sentry-watcher starting stage=%s cron=%s listen=%s",
+		a.Stage, a.CronExpression, a.Listen,
+	)
+
+	// Wall-clock schedule via bborbe/cron (real cron expression, not an
+	// interval ticker that drifts to the last pod restart). The first scan
+	// fires at the next match; manual scans go through /trigger.
+	cronJob := cron.NewExpressionCron(
+		cron.Expression(a.CronExpression),
+		run.Func(func(ctx context.Context) error {
+			return w.Poll(ctx)
+		}),
 	)
 
 	return run.CancelOnFirstFinish(ctx,
-		a.pollLoop(w.Poll, pollInterval),
+		run.Func(cronJob.Run),
 		a.createHTTPServer(w),
 	)
 }
@@ -187,23 +201,3 @@ func (a *application) createHTTPServer(w pkg.Watcher) run.Func {
 	}
 }
 
-// pollLoop fires one cycle immediately on start, then on each interval tick.
-func (a *application) pollLoop(poll run.Func, interval time.Duration) run.Func {
-	return func(ctx context.Context) error {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		if err := poll(ctx); err != nil {
-			glog.Errorf("initial poll: %v", err)
-		}
-		for {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-ticker.C:
-				if err := poll(ctx); err != nil {
-					glog.Errorf("poll: %v", err)
-				}
-			}
-		}
-	}
-}

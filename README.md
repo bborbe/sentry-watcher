@@ -1,6 +1,6 @@
 # sentry-watcher
 
-Polls the `bborbe.sentry.io` org for unresolved issues with activity in the last
+Polls the `bborbe.sentry.io` org for unresolved issues with recent activity
 24h and publishes one deduplicated `CreateTaskCommand` per `(short-id, date)` so
 the `sentry-issue-analyzer` agent can analyze each active alert.
 
@@ -11,7 +11,7 @@ vault, and the downstream agent owns the analysis.
 
 ## How It Works
 
-On each poll cycle (default `24h`):
+On each poll cycle (default daily at 00:00Z, via a real cron expression):
 
 1. **Load cursor** (`/data/cursor.json`) — a per-short-id map of the last UTC
    date (`2006-01-02`) a task was emitted for each issue.
@@ -68,7 +68,7 @@ lives in the frontmatter fields.
 | `SENTRY_PROJECTS` | no | `hell,nuke-dev,nuke-prod,quant` | Comma-separated per-cluster project slug allowlist |
 | `TOPIC_PREFIX` | no | — | Kafka topic prefix for CQRS topic construction (`develop` for dev, `master` for prod) |
 | `LISTEN` | no | `:9090` | HTTP listen address (`/healthz`, `/readiness`, `/metrics`) |
-| `POLL_INTERVAL` | no | `24h` | Poll interval (Go duration string) |
+| `CRON_EXPRESSION` | no | `0 0 0 * * ?` | Cron expression (strict 6-field, seconds-first; UTC in the pod) — when the scan runs. First scan fires at the next match |
 | `CURSOR_PATH` | no | `/data/cursor.json` | Cursor persistence path (PVC mount) |
 | `SEED_DATE` | no | — | UTC date (`2006-01-02`) to seed the cursor with on cold start; makes the first poll emit for every in-scope active issue dated after it |
 | `SENTRY_URL` | no | `https://bborbe.sentry.io` | Base URL of the Sentry org |
@@ -91,7 +91,7 @@ lives in the frontmatter fields.
 | `/metrics` | GET | Prometheus metrics |
 | `/resetcursor` | POST | Delete the cursor (next poll cold-starts); dangerous-wrapped |
 | `/setcursor/{shortId}/{date}` | POST | Pin a short-id's last emitted date (force re-emit by setting an earlier date); dangerous-wrapped |
-| `/trigger` | POST | Force one immediate poll cycle |
+| `/trigger` | POST | Force one immediate poll cycle (the same path /resetcursor + a manual scan)  |
 
 ## Metrics
 
