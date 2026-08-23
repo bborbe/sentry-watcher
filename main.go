@@ -179,7 +179,10 @@ func (a *application) createHTTPServer(w pkg.Watcher) run.Func {
 				libhttp.NewErrorHandler(handler.NewResetCursorHandler(a.CursorPath))))
 		router.Path("/setcursor/{shortId}/{date}").
 			Handler(libhttp.NewDangerousHandlerWrapper(
-				libhttp.NewErrorHandler(handler.NewSetCursorHandler(a.CursorPath))))
+				libhttp.NewErrorHandler(
+					handler.NewSetCursorHandler(pkg.NewFileCursorStore(a.CursorPath)),
+				),
+			))
 		router.Path("/trigger").Handler(libhttp.NewErrorHandler(handler.NewTriggerHandler(w)))
 		glog.V(2).Infof("http server listening on %s", a.Listen)
 		return libhttp.NewServer(a.Listen, router).Run(ctx)

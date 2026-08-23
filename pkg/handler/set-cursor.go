@@ -24,16 +24,17 @@ type SetCursorHandler = libhttp.WithError
 // URL variables (date in 2006-01-02 form) and writes the short-id's cursor entry
 // to that date. Setting it to a date before the issue's current activity date
 // makes the next poll emit a task; setting it to the current date suppresses
-// emit.
+// emit. The CursorStore is injected (no package-level LoadCursor/SaveCursor) per
+// go-composition/no-package-function-calls-in-business-logic.
 //
 // Wrap with libhttp.NewDangerousHandlerWrapper at the call site to require a
 // passphrase — the bare handler does not enforce auth.
-func NewSetCursorHandler(cursorPath string) SetCursorHandler {
-	return &setCursorHandler{cursorPath: cursorPath}
+func NewSetCursorHandler(store pkg.CursorStore) SetCursorHandler {
+	return &setCursorHandler{store: store}
 }
 
 type setCursorHandler struct {
-	cursorPath string
+	store pkg.CursorStore
 }
 
 func (h *setCursorHandler) ServeHTTP(
@@ -55,12 +56,12 @@ func (h *setCursorHandler) ServeHTTP(
 			http.StatusBadRequest,
 		)
 	}
-	cursor, err := pkg.LoadCursor(ctx, h.cursorPath)
+	cursor, err := h.store.Load(ctx)
 	if err != nil {
 		return errors.Wrapf(ctx, err, "load cursor before set")
 	}
 	cursor.Seen[shortID] = date
-	if err := pkg.SaveCursor(ctx, h.cursorPath, cursor); err != nil {
+	if err := h.store.Save(ctx, cursor); err != nil {
 		return errors.Wrapf(ctx, err, "save cursor after set")
 	}
 	glog.Warningf("cursor set shortID=%s date=%s", shortID, date)

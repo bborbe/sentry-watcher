@@ -58,7 +58,7 @@ var _ = Describe("pkg.handler cursor handlers", func() {
 	Describe("NewSetCursorHandler", func() {
 		It("writes the short-id date to the cursor (round-trip via LoadCursor)", func() {
 			router := newRouter("/setcursor/{shortId}/{date}",
-				handler.NewSetCursorHandler(cursorPath))
+				handler.NewSetCursorHandler(pkg.NewFileCursorStore(cursorPath)))
 			rec := serve(router, "/setcursor/SENTRY-TEST-1/2026-08-01")
 
 			Expect(rec.Code).To(Equal(http.StatusOK))
@@ -73,7 +73,7 @@ var _ = Describe("pkg.handler cursor handlers", func() {
 			}})).To(Succeed())
 
 			router := newRouter("/setcursor/{shortId}/{date}",
-				handler.NewSetCursorHandler(cursorPath))
+				handler.NewSetCursorHandler(pkg.NewFileCursorStore(cursorPath)))
 			rec := serve(router, "/setcursor/SENTRY-TEST-1/2026-08-01")
 
 			Expect(rec.Code).To(Equal(http.StatusOK))
@@ -87,7 +87,7 @@ var _ = Describe("pkg.handler cursor handlers", func() {
 
 		It("rejects an invalid date with 400 and does not write", func() {
 			router := newRouter("/setcursor/{shortId}/{date}",
-				handler.NewSetCursorHandler(cursorPath))
+				handler.NewSetCursorHandler(pkg.NewFileCursorStore(cursorPath)))
 			rec := serve(router, "/setcursor/SENTRY-TEST-1/not-a-date")
 
 			Expect(rec.Code).To(Equal(http.StatusBadRequest))
@@ -101,7 +101,8 @@ var _ = Describe("pkg.handler cursor handlers", func() {
 			req := httptest.NewRequest(http.MethodPost, "/setcursor/2026-08-01", nil)
 			req = mux.SetURLVars(req, map[string]string{"shortId": "", "date": "2026-08-01"})
 			rec := httptest.NewRecorder()
-			libhttp.NewErrorHandler(handler.NewSetCursorHandler(cursorPath)).ServeHTTP(rec, req)
+			libhttp.NewErrorHandler(handler.NewSetCursorHandler(pkg.NewFileCursorStore(cursorPath))).
+				ServeHTTP(rec, req)
 
 			Expect(rec.Code).To(Equal(http.StatusBadRequest))
 		})
