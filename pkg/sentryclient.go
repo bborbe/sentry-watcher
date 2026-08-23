@@ -83,13 +83,15 @@ type Project struct {
 }
 
 // SentryConfig groups the org-query connection settings for the Sentry client.
-// The API token is never logged here; the application arg fields that bind it
-// (main.go / cmd/run-once main.go SENTRY_API_TOKEN) carry display:"length" so
-// service.Main masks the value at startup.
+// APIToken carries display:"length" (inert on a plain config struct — the tag is
+// only read by service.Main's argument reflection, which never sees this struct)
+// so a future refactor that logs the config masks it; the authoritative masking
+// is the display:"length" on the application arg fields that bind SENTRY_API_TOKEN
+// (main.go / cmd/run-once main.go), which service.Main applies at startup.
 type SentryConfig struct {
 	URL         string // base URL, e.g. "https://bborbe.sentry.io"
 	Org         string // org slug, e.g. "bborbe"
-	APIToken    string // Bearer token for the Sentry REST API
+	APIToken    string `display:"length"` // Bearer token for the Sentry REST API
 	StatsPeriod string // activity window, e.g. "24h"
 
 	// MaxRetries bounds retry attempts on retryable responses (429/5xx); 0 → 3.
