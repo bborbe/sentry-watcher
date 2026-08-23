@@ -83,6 +83,11 @@ func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 		}
 	}
 
+	projects := splitProjects(a.SentryProjects)
+	if len(projects) == 0 {
+		return errors.Errorf(ctx, "SENTRY_PROJECTS must list at least one project slug")
+	}
+
 	titleTemplate, err := pkg.ParseTaskTemplate(ctx, "title", a.TaskTitleTemplate)
 	if err != nil {
 		return errors.Wrapf(ctx, err, "task title template")
@@ -119,7 +124,7 @@ func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 			TitleTemplate: titleTemplate,
 			BodyTemplate:  bodyTemplate,
 		},
-		splitProjects(a.SentryProjects),
+		projects,
 		a.SeedDate,
 		pkg.SentryConfig{
 			URL:         a.SentryURL,

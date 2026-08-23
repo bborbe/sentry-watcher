@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 
+	task "github.com/bborbe/agent/command/task"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -128,6 +129,54 @@ var _ = Describe("pkg.Watcher.Poll", func() {
 
 			Expect(loadedCursor().Seen["SENTRY-TEST-1"]).To(Equal("2026-08-23"))
 			Expect(metrics.IncPollCycleArgsForCall(0)).To(Equal("success"))
+		})
+	})
+
+	Context("seed-date cold start does not leak pre-seed issues on later polls", func() {
+		BeforeEach(func() {
+			w = newWatcher("2026-08-01")
+			client.UnresolvedIssuesReturns([]pkg.Issue{
+				issue("SENTRY-TEST-1", "nuke-prod", "2026-08-23T04:00:00Z"), // after seed → emit
+				issue("SENTRY-TEST-2", "hell", "2026-08-01T04:00:00Z"),      // at seed → suppressed
+			}, nil)
+			publisher.PublishCreateReturns(true)
+		})
+
+		It("emits only the after-seed issue on the first poll and nothing on the second", func() {
+			Expect(w.Poll(ctx)).To(Succeed())
+			Expect(publisher.PublishCreateCallCount()).To(Equal(1))
+			_, cmd := publisher.PublishCreateArgsForCall(0)
+			Expect(cmd.Frontmatter["short_id"]).To(Equal("SENTRY-TEST-1"))
+			Expect(filterSkipReasons()).To(ContainElement("already_seen"))
+
+			Expect(w.Poll(ctx)).To(Succeed())
+			Expect(publisher.PublishCreateCallCount()).To(Equal(1)) // no leak on second poll
+			Expect(loadedCursor().Seen["SENTRY-TEST-2"]).To(Equal("2026-08-01"))
+		})
+	})
+
+	Context("publish fails for one of several new issues", func() {
+		BeforeEach(func() {
+			w = newWatcher("2026-08-01")
+			client.UnresolvedIssuesReturns([]pkg.Issue{
+				issue("SENTRY-TEST-1", "nuke-prod", "2026-08-23T04:00:00Z"),
+				issue("SENTRY-TEST-2", "hell", "2026-08-22T04:00:00Z"),
+			}, nil)
+			publisher.PublishCreateStub = func(_ context.Context, cmd task.CreateCommand) bool {
+				return cmd.Frontmatter["short_id"] == "SENTRY-TEST-1"
+			}
+		})
+
+		It("advances only the successfully published issue", func() {
+			Expect(w.Poll(ctx)).To(Succeed())
+			Expect(publisher.PublishCreateCallCount()).To(Equal(2))
+
+			seen := loadedCursor().Seen
+			Expect(seen["SENTRY-TEST-1"]).To(Equal("2026-08-23")) // published → advanced
+			Expect(
+				seen["SENTRY-TEST-2"],
+			).To(Equal("2026-08-01"))
+			// baseline held; re-emits next cycle
 		})
 	})
 

@@ -92,6 +92,17 @@ type ProducerFactory func(
 
 // Run executes a single poll cycle and returns.
 func (a *Application) Run(ctx context.Context, _ libsentry.Client) error {
+	if a.SeedDate != "" {
+		if _, err := time.Parse("2006-01-02", a.SeedDate); err != nil {
+			return errors.Wrapf(ctx, err, "parse seed date %q", a.SeedDate)
+		}
+	}
+
+	projects := splitProjects(a.SentryProjects)
+	if len(projects) == 0 {
+		return errors.Errorf(ctx, "SENTRY_PROJECTS must list at least one project slug")
+	}
+
 	syncProducer, err := a.CreateProducer(ctx, a.KafkaBrokers, "sentry-watcher-run-once")
 	if err != nil {
 		return errors.Wrap(ctx, err, "create sync producer")
@@ -116,7 +127,7 @@ func (a *Application) Run(ctx context.Context, _ libsentry.Client) error {
 			Status:   "in_progress",
 			Phase:    "planning",
 		},
-		splitProjects(a.SentryProjects),
+		projects,
 		a.SeedDate,
 		pkg.SentryConfig{
 			URL:         a.SentryURL,

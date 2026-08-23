@@ -65,8 +65,10 @@ type watcher struct {
 //  2. Query Sentry for unresolved issues active in the stats period — on error
 //     hold the cursor, record sentry_error, return nil.
 //  3. Cold start (empty cursor): with no seedDate, seed the cursor with each
-//     in-scope issue's current date and emit nothing; with a seedDate, fall
-//     through so the first poll emits for every issue dated after the seed.
+//     in-scope issue's current date and emit nothing; with a seedDate, seed the
+//     baseline (every in-scope issue → seedDate) and fall through so the first
+//     poll emits for every issue dated after the seed while pre-seed issues stay
+//     suppressed on this AND subsequent polls.
 //  4. For each in-scope issue, run the filter chain (scope, missing short-id,
 //     already-seen) — skipped issues record filter_skipped and emit nothing.
 //  5. Emit one task per (short-id, date); advance the cursor entry only when
@@ -92,9 +94,16 @@ func (w *watcher) Poll(ctx context.Context) error {
 		w.metrics.IncPollCycle("success")
 		return nil
 	}
+	if coldStart && w.seedDate != "" {
+		w.seedBaseline(cursor, issues)
+	}
 
 	for _, issue := range issues {
-		if reason := w.skipReason(ctx, issue, cursor, coldStart); reason != "" {
+		if err := ctx.Err(); err != nil {
+			glog.V(2).Infof("poll cycle aborted mid-loop: %v", err)
+			return nil
+		}
+		if reason := w.skipReason(ctx, issue, cursor); reason != "" {
 			w.metrics.IncFilterSkipped(reason)
 			continue
 		}
@@ -140,16 +149,26 @@ func (w *watcher) seedCursor(ctx context.Context, cursor *Cursor, issues []Issue
 	glog.V(2).Infof("cold-start seed issues=%d", seeded)
 }
 
+// seedBaseline records the seed date as the last-emitted baseline for every
+// in-scope issue on a seed-date cold start, so the normal already-seen
+// comparison suppresses pre-seed issues on this AND subsequent polls (mirrors
+// go-version's SEED_VERSION baseline — the seed is the floor, pre-baseline is
+// never emitted).
+func (w *watcher) seedBaseline(cursor *Cursor, issues []Issue) {
+	for _, issue := range issues {
+		if !w.inScope(issue.Project.Slug) || issue.ShortID == "" {
+			continue
+		}
+		cursor.Seen[issue.ShortID] = w.seedDate
+	}
+	glog.V(2).Infof("cold-start seed baseline date=%s issues=%d", w.seedDate, len(cursor.Seen))
+}
+
 // skipReason runs the per-issue filter chain and returns the skip metric label,
-// or "" when the issue should be emitted. In seedDate cold-start mode the
-// already-seen rule compares the issue date against the configured seed date;
-// otherwise against the cursor's last emitted date for the short-id.
-func (w *watcher) skipReason(
-	ctx context.Context,
-	issue Issue,
-	cursor *Cursor,
-	coldStart bool,
-) string {
+// or "" when the issue should be emitted. The already-seen rule compares the
+// issue date against the cursor's last emitted date for the short-id (on a
+// seed-date cold start that baseline is the configured seed date).
+func (w *watcher) skipReason(ctx context.Context, issue Issue, cursor *Cursor) string {
 	if !w.inScope(issue.Project.Slug) {
 		return "project_not_in_scope"
 	}
@@ -165,12 +184,6 @@ func (w *watcher) skipReason(
 			err,
 		)
 		return "invalid_date"
-	}
-	if coldStart && w.seedDate != "" {
-		if date <= w.seedDate {
-			return "already_seen"
-		}
-		return ""
 	}
 	if lastEmitted, seen := cursor.Seen[issue.ShortID]; seen && date <= lastEmitted {
 		return "already_seen"

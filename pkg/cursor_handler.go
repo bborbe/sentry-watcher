@@ -53,9 +53,9 @@ func NewSetCursorHandler(cursorPath string) http.Handler {
 			func(ctx context.Context, resp http.ResponseWriter, req *http.Request) error {
 				shortID := mux.Vars(req)["shortId"]
 				date := mux.Vars(req)["date"]
-				if shortID == "" {
+				if shortID == "" || len(shortID) > 64 {
 					return libhttp.WrapWithStatusCode(
-						errors.Errorf(ctx, "missing {shortId} path variable"),
+						errors.Errorf(ctx, "invalid {shortId} path variable"),
 						http.StatusBadRequest,
 					)
 				}

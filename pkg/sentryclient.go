@@ -32,11 +32,21 @@ const DefaultStatsPeriod = "24h"
 // sentryPageSize is the max issues per page the org issues list endpoint accepts.
 const sentryPageSize = 100
 
-// maxRetries bounds retry attempts on retryable Sentry API responses (429/5xx).
-const maxRetries = 3
+// defaultMaxRetries bounds retry attempts on retryable Sentry API responses
+// (429/5xx) when SentryConfig.MaxRetries is unset.
+const defaultMaxRetries = 3
 
-// backoffBase is the base sleep between retries on transient API failures.
-const backoffBase = 5 * time.Second
+// defaultBackoff is the base sleep between retries on transient API failures
+// when SentryConfig.Backoff is unset.
+const defaultBackoff = 5 * time.Second
+
+// maxRetryAfter caps a server-supplied Retry-After header so a misconfigured or
+// hostile upstream cannot stall the poll loop for an unbounded period.
+const maxRetryAfter = 60 * time.Second
+
+// maxPages bounds the org-issues pagination loop as a backstop against a
+// misbehaving upstream that never terminates its Link header.
+const maxPages = 1000
 
 //counterfeiter:generate -o ../mocks/sentry_client.go --fake-name SentryClient . SentryClient
 
@@ -71,11 +81,26 @@ type SentryConfig struct {
 	Org         string // org slug, e.g. "bborbe"
 	APIToken    string // Bearer token for the Sentry REST API
 	StatsPeriod string // activity window, e.g. "24h"
+
+	// MaxRetries bounds retry attempts on retryable responses (429/5xx); 0 → 3.
+	MaxRetries int
+	// Backoff is the base sleep between retries; 0 → 5s. 429 honors the server's
+	// Retry-After header when present (capped at maxRetryAfter).
+	Backoff time.Duration
 }
 
 // NewSentryClient returns the production SentryClient backed by the given HTTP
-// client and org-query config.
+// client and org-query config, applying defaults for unset knobs.
 func NewSentryClient(httpClient *http.Client, cfg SentryConfig) SentryClient {
+	if cfg.StatsPeriod == "" {
+		cfg.StatsPeriod = DefaultStatsPeriod
+	}
+	if cfg.MaxRetries == 0 {
+		cfg.MaxRetries = defaultMaxRetries
+	}
+	if cfg.Backoff == 0 {
+		cfg.Backoff = defaultBackoff
+	}
 	return &sentryClient{httpClient: httpClient, cfg: cfg}
 }
 
@@ -87,7 +112,12 @@ type sentryClient struct {
 func (c *sentryClient) UnresolvedIssues(ctx context.Context) ([]Issue, error) {
 	var issues []Issue
 	cursor := ""
+	pages := 0
 	for {
+		pages++
+		if pages > maxPages {
+			return nil, errors.Errorf(ctx, "sentry issues pagination exceeded %d pages", maxPages)
+		}
 		page, next, err := c.fetchPage(ctx, cursor)
 		if err != nil {
 			return nil, err
@@ -102,7 +132,7 @@ func (c *sentryClient) UnresolvedIssues(ctx context.Context) ([]Issue, error) {
 
 // fetchPage fetches one page of unresolved issues, following the opaque cursor
 // pagination of the Sentry org-issues list endpoint. Retryable statuses (429
-// with Retry-After, 5xx) are retried with backoff up to maxRetries; a network
+// with Retry-After, 5xx) are retried with backoff up to MaxRetries; a network
 // error is returned immediately (the 24h poll is the retry).
 func (c *sentryClient) fetchPage(ctx context.Context, cursor string) ([]Issue, string, error) {
 	query := url.Values{}
@@ -120,7 +150,7 @@ func (c *sentryClient) fetchPage(ctx context.Context, cursor string) ([]Issue, s
 	var page []Issue
 	var next string
 	var lastErr error
-	for attempt := 1; attempt <= maxRetries; attempt++ {
+	for attempt := 1; attempt <= c.cfg.MaxRetries; attempt++ {
 		page, next, lastErr = c.doPage(ctx, endpoint)
 		if lastErr == nil {
 			return page, next, nil
@@ -130,7 +160,7 @@ func (c *sentryClient) fetchPage(ctx context.Context, cursor string) ([]Issue, s
 			// Network / transport error — not retryable within a cycle.
 			break
 		}
-		backoff := sentryBackoff(he.status, he.retryAfter)
+		backoff := sentryBackoff(he.status, he.retryAfter, c.cfg.Backoff)
 		if backoff < 0 {
 			break // non-retryable status (4xx except 429)
 		}
@@ -157,6 +187,7 @@ func (c *sentryClient) doPage(ctx context.Context, endpoint string) ([]Issue, st
 		}
 	}()
 	if resp.StatusCode != http.StatusOK {
+		glog.V(2).Infof("sentry issues fetch status=%d", resp.StatusCode)
 		retryAfter := parseRetryAfter(resp.Header.Get("Retry-After"))
 		return nil, "", &sentryHTTPError{status: resp.StatusCode, retryAfter: retryAfter}
 	}
@@ -168,7 +199,15 @@ func (c *sentryClient) doPage(ctx context.Context, endpoint string) ([]Issue, st
 	if err := json.Unmarshal(body, &page); err != nil {
 		return nil, "", errors.Wrapf(ctx, err, "unmarshal sentry issues response")
 	}
-	return page, nextCursor(resp.Header.Get("Link")), nil
+	for i := range page {
+		sanitizeIssue(&page[i])
+	}
+	next := nextCursor(resp.Header.Get("Link"))
+	glog.V(2).Infof(
+		"sentry issues fetched status=%d issues=%d next=%q",
+		resp.StatusCode, len(page), next,
+	)
+	return page, next, nil
 }
 
 // IssueDate returns the UTC calendar date (2006-01-02) of the issue's last
@@ -184,6 +223,36 @@ func IssueDate(ctx context.Context, lastSeen string) (string, error) {
 	return t.UTC().Format("2006-01-02"), nil
 }
 
+// sanitizeIssue strips control characters and caps lengths of the untrusted
+// Sentry-provided strings so they cannot inject newlines / YAML-significant
+// characters into the emitted task title, body, or frontmatter. The go.dev
+// source the skeleton ported had only trusted data; Sentry issue titles are
+// attacker-controllable within the org.
+func sanitizeIssue(issue *Issue) {
+	issue.ShortID = sanitizeField(issue.ShortID, 64)
+	issue.Title = sanitizeField(issue.Title, 200)
+	issue.Permalink = sanitizeField(issue.Permalink, 512)
+	issue.Project.Slug = sanitizeField(issue.Project.Slug, 64)
+}
+
+// sanitizeField drops control characters (except tab), trims, and caps length.
+func sanitizeField(s string, maxLen int) string {
+	s = strings.Map(func(r rune) rune {
+		if r == '\t' {
+			return r
+		}
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, s)
+	s = strings.TrimSpace(s)
+	if len(s) > maxLen {
+		s = s[:maxLen]
+	}
+	return s
+}
+
 // sentryHTTPError is a non-2xx Sentry API response carrying the retry hint.
 type sentryHTTPError struct {
 	status     int
@@ -195,17 +264,20 @@ func (e *sentryHTTPError) Error() string {
 }
 
 // sentryBackoff returns the sleep before retrying a failed request, or -1 when
-// the status is not retryable. 429 honors Retry-After; 5xx uses the base
-// backoff.
-func sentryBackoff(status int, retryAfter time.Duration) time.Duration {
+// the status is not retryable. 429 honors Retry-After (capped at maxRetryAfter);
+// 5xx uses the base backoff.
+func sentryBackoff(status int, retryAfter, base time.Duration) time.Duration {
 	switch {
 	case status == http.StatusTooManyRequests:
 		if retryAfter > 0 {
+			if retryAfter > maxRetryAfter {
+				return maxRetryAfter
+			}
 			return retryAfter
 		}
-		return backoffBase
+		return base
 	case status >= 500:
-		return backoffBase
+		return base
 	default:
 		return -1
 	}

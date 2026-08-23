@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"sync"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -51,6 +52,17 @@ var _ = Describe("pkg.SentryClient", func() {
 			Org:         "bborbe",
 			APIToken:    "test-token",
 			StatsPeriod: "24h",
+		})
+	}
+
+	// fastClient uses a near-zero backoff so retry-path tests don't sleep 5s+.
+	fastClient := func() pkg.SentryClient {
+		return pkg.NewSentryClient(server.Client(), pkg.SentryConfig{
+			URL:         server.URL,
+			Org:         "bborbe",
+			APIToken:    "test-token",
+			StatsPeriod: "24h",
+			Backoff:     time.Nanosecond,
 		})
 	}
 
@@ -144,10 +156,87 @@ var _ = Describe("pkg.SentryClient", func() {
 		})
 
 		It("retries after the rate-limit and succeeds", func() {
-			issues, err := client().UnresolvedIssues(ctx)
+			issues, err := fastClient().UnresolvedIssues(ctx)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(issues).To(HaveLen(1))
 			Expect(attempts).To(Equal(2))
+		})
+	})
+
+	Context("retry exhaustion on persistent 5xx", func() {
+		var attempts int
+		BeforeEach(func() {
+			attempts = 0
+			handler = func(w http.ResponseWriter, _ *http.Request) {
+				attempts++
+				w.WriteHeader(http.StatusServiceUnavailable)
+			}
+		})
+
+		It("attempts exactly MaxRetries times then returns an error", func() {
+			_, err := fastClient().UnresolvedIssues(ctx)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("503"))
+			Expect(attempts).To(Equal(3))
+		})
+	})
+
+	Context("empty issue list", func() {
+		BeforeEach(func() {
+			handler = func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`[]`))
+			}
+		})
+
+		It("returns an empty slice with no error", func() {
+			issues, err := client().UnresolvedIssues(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(issues).To(BeEmpty())
+		})
+	})
+
+	Context("malformed Link header", func() {
+		BeforeEach(func() {
+			handler = func(w http.ResponseWriter, _ *http.Request) {
+				// rel="next" present but with no cursor="..." attribute.
+				w.Header().Set("Link",
+					fmt.Sprintf(`<%s/next>; rel="next"; results="true"`, server.URL))
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write(
+					[]byte(
+						`[{"id":"1","shortId":"SENTRY-TEST-1","lastSeen":"2026-08-23T04:00:00Z","project":{"slug":"nuke-prod"}}]`,
+					),
+				)
+			}
+		})
+
+		It("stops pagination after one page (no infinite loop)", func() {
+			issues, err := client().UnresolvedIssues(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(issues).To(HaveLen(1))
+		})
+	})
+
+	Context("untrusted issue fields", func() {
+		BeforeEach(func() {
+			handler = func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(
+					`[{"id":"1","shortId":"SENTRY-TEST-1\nEVIL","title":"boom\r\ninject","lastSeen":"2026-08-23T04:00:00Z","permalink":"https://bborbe.sentry.io/issues/1/","project":{"slug":"nuke-prod","name":"nuke-prod"}}]`,
+				))
+			}
+		})
+
+		It("strips control characters from title and short-id", func() {
+			issues, err := client().UnresolvedIssues(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(issues).To(HaveLen(1))
+			Expect(issues[0].ShortID).To(Equal("SENTRY-TEST-1EVIL"))
+			Expect(issues[0].Title).To(Equal("boominject"))
 		})
 	})
 
@@ -159,7 +248,7 @@ var _ = Describe("pkg.SentryClient", func() {
 		})
 
 		It("returns an error after retries", func() {
-			_, err := client().UnresolvedIssues(ctx)
+			_, err := fastClient().UnresolvedIssues(ctx)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("sentry"))
 		})
