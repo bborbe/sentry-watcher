@@ -14,6 +14,9 @@ import (
 	"github.com/onsi/gomega/gexec"
 )
 
+// Main compiles the root binary via gexec.Build as the go-testing/
+// main-test-with-compiles guard — make test fails if the sentry-watcher binary
+// fails to link. This suite exists at the repo root alongside main.go.
 var _ = Describe("Main", func() {
 	It("Compiles", func() {
 		_, err := gexec.Build(".", "-mod=mod", "-buildvcs=false")

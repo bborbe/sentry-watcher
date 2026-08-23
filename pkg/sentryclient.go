@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/bborbe/errors"
+	libtime "github.com/bborbe/time"
 	"github.com/golang/glog"
 )
 
@@ -99,6 +100,10 @@ type SentryConfig struct {
 	// Backoff is the base sleep between retries; 0 → 5s. 429 honors the server's
 	// Retry-After header when present (capped at maxRetryAfter).
 	Backoff time.Duration
+
+	// CurrentDateTimeGetter supplies timestamps for the fetch audit log
+	// (go-time/no-time-now-direct); nil → libtime.NewCurrentDateTime().
+	CurrentDateTimeGetter libtime.CurrentDateTimeGetter
 }
 
 // NewSentryClient returns the production SentryClient backed by the given HTTP
@@ -112,6 +117,9 @@ func NewSentryClient(httpClient *http.Client, cfg SentryConfig) SentryClient {
 	}
 	if cfg.Backoff == 0 {
 		cfg.Backoff = defaultBackoff
+	}
+	if cfg.CurrentDateTimeGetter == nil {
+		cfg.CurrentDateTimeGetter = libtime.NewCurrentDateTime()
 	}
 	return &sentryClient{httpClient: httpClient, cfg: cfg}
 }
@@ -195,7 +203,7 @@ func (c *sentryClient) doPage(ctx context.Context, endpoint string) ([]Issue, st
 		return nil, "", errors.Wrapf(ctx, err, "create sentry request %s", endpoint)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.cfg.APIToken)
-	start := time.Now()
+	start := c.cfg.CurrentDateTimeGetter.Now().Time()
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, "", errors.Wrapf(ctx, err, "get %s", endpoint)

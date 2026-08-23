@@ -73,7 +73,7 @@ type Application struct {
 	// (e.g. "develop" / "master"); independent of Stage. Empty means unprefixed topics.
 	TopicPrefix    base.TopicPrefix `required:"false" arg:"topic-prefix" env:"TOPIC_PREFIX" usage:"Kafka topic prefix for CQRS topic construction"`
 	CreateWatcher  WatcherFactory
-	CreateProducer ProducerFactory
+	CreateProducer SyncProducerFunc
 }
 
 // WatcherFactory creates a Watcher. Matches factory.CreateWatcher's signature
@@ -89,9 +89,10 @@ type WatcherFactory func(
 	sentryCfg pkg.SentryConfig,
 ) pkg.Watcher
 
-// ProducerFactory creates a Kafka sync producer. Matches
+// SyncProducerFunc creates a Kafka sync producer. Matches
 // libkafka.NewSyncProducerWithName so tests can stub with a fake producer.
-type ProducerFactory func(
+// Named per go-functional-composition/func-type-name (interface + Func).
+type SyncProducerFunc func(
 	ctx context.Context,
 	brokers libkafka.Brokers,
 	name string,
