@@ -61,11 +61,10 @@ type Application struct {
 	SeedDate     string           `required:"false" arg:"seed-date"     env:"SEED_DATE"     usage:"Optional UTC date (2006-01-02) to seed the cursor with on cold-start; makes the first poll emit for every in-scope active issue dated after it. Empty = seed to current, emit nothing."`
 	KafkaBrokers libkafka.Brokers `required:"true"  arg:"kafka-brokers" env:"KAFKA_BROKERS" usage:"Comma-separated Kafka broker list"`
 
-	SentryURL         string `required:"false" arg:"sentry-url"          env:"SENTRY_URL"          usage:"Base URL of the Sentry org"                         default:"https://bborbe.sentry.io"`
-	SentryOrg         string `required:"false" arg:"sentry-org"          env:"SENTRY_ORG"          usage:"Sentry org slug"                                    default:"bborbe"`
-	SentryAPIToken    string `required:"true"  arg:"sentry-api-token"    env:"SENTRY_API_TOKEN"    usage:"Sentry REST API Bearer token"                                                               display:"length"`
-	SentryProjects    string `required:"true"  arg:"sentry-projects"     env:"SENTRY_PROJECTS"     usage:"Comma-separated per-cluster project slug allowlist" default:"hell,nuke-dev,nuke-prod,quant"`
-	SentryStatsPeriod string `required:"false" arg:"sentry-stats-period" env:"SENTRY_STATS_PERIOD" usage:"Activity window for the org issues query"           default:"24h"`
+	SentryURL      string `required:"false" arg:"sentry-url"       env:"SENTRY_URL"       usage:"Base URL of the Sentry org"                         default:"https://bborbe.sentry.io"`
+	SentryOrg      string `required:"false" arg:"sentry-org"       env:"SENTRY_ORG"       usage:"Sentry org slug"                                    default:"bborbe"`
+	SentryAPIToken string `required:"true"  arg:"sentry-api-token" env:"SENTRY_API_TOKEN" usage:"Sentry REST API Bearer token"                                                               display:"length"`
+	SentryProjects string `required:"true"  arg:"sentry-projects"  env:"SENTRY_PROJECTS"  usage:"Comma-separated per-cluster project slug allowlist" default:"hell,nuke-dev,nuke-prod,quant"`
 
 	TargetVault string `required:"false" arg:"target-vault" env:"TARGET_VAULT" usage:"Obsidian vault slug for the emitted task (e.g. 'personal'); empty = controller default (openclaw)."`
 
@@ -139,10 +138,9 @@ func (a *Application) Run(ctx context.Context, _ libsentry.Client) error {
 		projects,
 		a.SeedDate,
 		pkg.SentryConfig{
-			URL:         a.SentryURL,
-			Org:         a.SentryOrg,
-			APIToken:    a.SentryAPIToken,
-			StatsPeriod: a.SentryStatsPeriod,
+			URL:      a.SentryURL,
+			Org:      a.SentryOrg,
+			APIToken: a.SentryAPIToken,
 		},
 	)
 

@@ -48,21 +48,19 @@ var _ = Describe("pkg.SentryClient", func() {
 
 	client := func() pkg.SentryClient {
 		return pkg.NewSentryClient(server.Client(), pkg.SentryConfig{
-			URL:         server.URL,
-			Org:         "bborbe",
-			APIToken:    "test-token",
-			StatsPeriod: "24h",
+			URL:      server.URL,
+			Org:      "bborbe",
+			APIToken: "test-token",
 		})
 	}
 
 	// fastClient uses a near-zero backoff so retry-path tests don't sleep 5s+.
 	fastClient := func() pkg.SentryClient {
 		return pkg.NewSentryClient(server.Client(), pkg.SentryConfig{
-			URL:         server.URL,
-			Org:         "bborbe",
-			APIToken:    "test-token",
-			StatsPeriod: "24h",
-			Backoff:     time.Nanosecond,
+			URL:      server.URL,
+			Org:      "bborbe",
+			APIToken: "test-token",
+			Backoff:  time.Nanosecond,
 		})
 	}
 
@@ -90,7 +88,7 @@ var _ = Describe("pkg.SentryClient", func() {
 		})
 
 		It(
-			"queries the org issues endpoint with is:unresolved + statsPeriod and Bearer auth",
+			"queries the org issues endpoint with is:unresolved and Bearer auth",
 			func() {
 				issues, err := client().UnresolvedIssues(ctx)
 				Expect(err).NotTo(HaveOccurred())
@@ -106,7 +104,7 @@ var _ = Describe("pkg.SentryClient", func() {
 			url := capturedURL
 			mu.Unlock()
 			Expect(url).To(ContainSubstring("query=is%3Aunresolved"))
-			Expect(url).To(ContainSubstring("statsPeriod=24h"))
+			Expect(url).NotTo(ContainSubstring("statsPeriod"))
 			Expect(url).To(ContainSubstring("limit=" + strconv.Itoa(100)))
 		})
 	})

@@ -15,9 +15,12 @@ On each poll cycle (default `24h`):
 
 1. **Load cursor** (`/data/cursor.json`) — a per-short-id map of the last UTC
    date (`2006-01-02`) a task was emitted for each issue.
-2. **Query Sentry** — `GET /api/0/organizations/bborbe/issues/?query=is:unresolved&statsPeriod=24h`
+2. **Query Sentry** — `GET /api/0/organizations/bborbe/issues/?query=is:unresolved`
    with `Authorization: Bearer <token>`, paged to exhaustion. On query failure
-   the cursor is held and the cycle records `sentry_error`.
+   the cursor is held and the cycle records `sentry_error`. (No `statsPeriod` —
+   Sentry's org-issues endpoint treats it as an event-recency filter, and real
+   unresolved issues routinely sit 1-3 days past their last event; the cursor +
+   per-`(short-id, date)` dedup is the dedup mechanism, not the query.)
 3. **Scope filter** — only issues whose project slug is in the allowlist
    (`hell` / `nuke-dev` / `nuke-prod` / `quant`) are acted on; others record
    `project_not_in_scope`.
@@ -70,7 +73,6 @@ lives in the frontmatter fields.
 | `SEED_DATE` | no | — | UTC date (`2006-01-02`) to seed the cursor with on cold start; makes the first poll emit for every in-scope active issue dated after it |
 | `SENTRY_URL` | no | `https://bborbe.sentry.io` | Base URL of the Sentry org |
 | `SENTRY_ORG` | no | `bborbe` | Sentry org slug |
-| `SENTRY_STATS_PERIOD` | no | `24h` | Activity window for the org issues query |
 | `TARGET_VAULT` | no | — | Obsidian vault slug the task-controller materializes the task into (`personal` → `24 Tasks/`). Empty = controller default (`openclaw`) |
 | `TASK_ASSIGNEE` | no | `sentry-issue-analyzer` | Frontmatter `assignee` |
 | `TASK_STATUS` | no | `in_progress` | Frontmatter `status` |

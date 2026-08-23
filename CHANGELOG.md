@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- fix: drop `statsPeriod` from the org-issues query — Sentry's org-issues
+  endpoint treats `statsPeriod` as an event-recency filter, so the 24h window
+  returned zero issues (real unresolved issues routinely sit 1-3 days past their
+  last event). The query is now plain `query=is:unresolved`; the cursor +
+  per-`(short-id, date)` dedup is the dedup mechanism. Removes the
+  `SENTRY_STATS_PERIOD` env var.
 - docs: correct the Deployment section — sentry-watcher deploys as a nuke-repo
   unit via the `bborbe/helm` sentry-watcher chart (go-version-notifier pattern),
   not the maintainer Helm chart.
