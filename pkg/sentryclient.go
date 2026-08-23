@@ -328,11 +328,17 @@ func parseRetryAfter(v string) time.Duration {
 var linkCursorPattern = regexp.MustCompile(`cursor="([^"]+)"`)
 
 // nextCursor returns the cursor for rel="next" from a Link header, or "" when
-// there is no next page.
+// there is no next page. Sentry still emits a rel="next" URL on the final page
+// but marks it results="false"; following it re-fetches the same empty page
+// forever, so the results flag is the pagination terminator, not an empty URL.
 func nextCursor(link string) string {
 	for _, part := range strings.Split(link, ",") {
 		if !strings.Contains(part, `rel="next"`) {
 			continue
+		}
+		// results="false" on the next link means no further pages: stop.
+		if strings.Contains(part, `results="false"`) {
+			return ""
 		}
 		if m := linkCursorPattern.FindStringSubmatch(part); len(m) == 2 {
 			return m[1]

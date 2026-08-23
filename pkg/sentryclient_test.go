@@ -138,6 +138,36 @@ var _ = Describe("pkg.SentryClient", func() {
 		})
 	})
 
+	Context("pagination with results=false terminator", func() {
+		var calls int
+		BeforeEach(func() {
+			calls = 0
+			handler = func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				// Sentry emits a rel="next" URL on the final page but marks it
+				// results="false"; following the phantom cursor re-fetches the
+				// same empty page forever. The watcher must stop, not loop.
+				w.Header().Set("Link",
+					fmt.Sprintf(`<%s/next?cursor=phantom>; rel="next"; results="false"; cursor="phantom"`, server.URL),
+				)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write(
+					[]byte(
+						`[{"id":"1","shortId":"SENTRY-TEST-1","lastSeen":"2026-08-23T04:00:00Z","project":{"slug":"nuke-prod"}}]`,
+					),
+				)
+			}
+		})
+
+		It("stops after the first page when the next link says results=false", func() {
+			issues, err := client().UnresolvedIssues(ctx)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(calls).To(Equal(1))
+			Expect(issues).To(HaveLen(1))
+		})
+	})
+
 	Context("rate limit (429) then success", func() {
 		var attempts int
 		BeforeEach(func() {
