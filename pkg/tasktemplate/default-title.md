@@ -1,1 +1,1 @@
-Update Go to {{.Number}}
+Analyze Sentry issue {{.ShortID}} - {{.Date}}

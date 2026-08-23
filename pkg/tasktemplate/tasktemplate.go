@@ -3,13 +3,12 @@
 // license that can be found in the LICENSE file.
 
 // Package tasktemplate holds the built-in default title/body templates for the
-// emitted go-version task, authored as embedded markdown files. A deployment
-// overrides them via the TASK_TITLE_TEMPLATE / TASK_BODY_TEMPLATE envs; these
-// defaults are deployment-agnostic so the watcher is reusable as-is.
+// emitted sentry-issue-analyzer task, authored as embedded markdown files. A
+// deployment overrides them via the TASK_TITLE_TEMPLATE / TASK_BODY_TEMPLATE
+// envs; these defaults are deployment-agnostic so the watcher is reusable as-is.
 //
 // The templates are Go text/templates rendered against the task-template data
-// (fields: Version, Number, ReleaseKind, PreviousVersion, ReleaseNotesURL,
-// DownloadsURL).
+// (fields: ShortID, Date, Title, Project, IssueURL).
 package tasktemplate
 
 import (

@@ -7,7 +7,6 @@ package pkg
 import (
 	"bytes"
 	"context"
-	"strings"
 	"text/template"
 
 	agentlib "github.com/bborbe/agent"
@@ -21,9 +20,9 @@ import (
 // frontmatter knobs).
 type TaskConfig struct {
 	Stage    string // "dev" or "prod" — frontmatter `stage`
-	Assignee string // frontmatter `assignee` (default "human")
+	Assignee string // frontmatter `assignee` (default "sentry-issue-analyzer")
 	Status   string // frontmatter `status` (default "in_progress")
-	Phase    string // frontmatter `phase` (default "todo")
+	Phase    string // frontmatter `phase` (default "planning")
 	Suffix   string // optional title/filename suffix appended as " - <suffix>"; empty = none
 
 	// TitleTemplate overrides the emitted-task title; nil ⇒ tasktemplate.DefaultTitle.
@@ -34,41 +33,31 @@ type TaskConfig struct {
 
 // taskTemplateData is the data passed to the title/body text/templates.
 type taskTemplateData struct {
-	Version         string // canonical go-version string, e.g. "go1.26.5"
-	Number          string // version number without the "go" prefix, e.g. "1.26.5"
-	ReleaseKind     string // "minor" or "patch"
-	PreviousVersion string // previous canonical go-version string, e.g. "go1.26.4"
-	ReleaseNotesURL string // full go.dev release-notes anchor URL
-	DownloadsURL    string // go.dev downloads page URL
+	ShortID  string // Sentry short-id, e.g. "SENTRY-TEST-1"
+	Date     string // UTC calendar date of last activity, "2006-01-02"
+	Title    string // Sentry issue title
+	Project  string // Sentry project slug, e.g. "nuke-prod"
+	IssueURL string // Sentry issue permalink
 }
 
-// releaseNotesBaseURL is the go.dev release-notes page; the version string is
-// appended as an anchor (e.g. #go1.27.0).
-const releaseNotesBaseURL = "https://go.dev/doc/devel/release#"
-
-// downloadsURL is the go.dev downloads page.
-const downloadsURL = "https://go.dev/dl/"
-
-// BuildCreateCommand assembles the CreateTaskCommand for a new Go version.
-// newVersion and previousVersion are canonical go-version strings (e.g.
-// "go1.27.0"); releaseKind is "minor" or "patch". The title and body are
-// rendered from cfg.TitleTemplate / cfg.BodyTemplate (or the package defaults
-// when nil); any template-execution failure is returned as a wrapped error.
+// BuildCreateCommand assembles the CreateTaskCommand for an active Sentry
+// issue. issue is the source alert; date is the UTC calendar date of its last
+// activity (see IssueDate). The title and body are rendered from
+// cfg.TitleTemplate / cfg.BodyTemplate (or the package defaults when nil); any
+// template-execution failure is returned as a wrapped error.
 func BuildCreateCommand(
 	ctx context.Context,
-	newVersion string,
-	previousVersion string,
-	releaseKind string,
+	issue Issue,
+	date string,
 	cfg TaskConfig,
 ) (task.CreateCommand, error) {
-	taskIDStr := DeriveTaskID(newVersion).String()
+	taskIDStr := DeriveTaskID(issue.ShortID, date).String()
 	data := taskTemplateData{
-		Version:         newVersion,
-		Number:          strings.TrimPrefix(newVersion, "go"),
-		ReleaseKind:     releaseKind,
-		PreviousVersion: previousVersion,
-		ReleaseNotesURL: releaseNotesBaseURL + newVersion,
-		DownloadsURL:    downloadsURL,
+		ShortID:  issue.ShortID,
+		Date:     date,
+		Title:    issue.Title,
+		Project:  issue.Project.Slug,
+		IssueURL: issue.Permalink,
 	}
 
 	renderedTitle, err := renderTemplate(ctx, cfg.TitleTemplate, tasktemplate.DefaultTitle, data)
@@ -86,9 +75,10 @@ func BuildCreateCommand(
 		Title:          title,
 		TaskIdentifier: agentlib.TaskIdentifier(taskIDStr),
 		Frontmatter: buildFrontmatter(
-			newVersion,
-			previousVersion,
-			releaseKind,
+			issue.ShortID,
+			issue.Project.Slug,
+			issue.Permalink,
+			date,
 			taskIDStr,
 			title,
 			cfg,
@@ -101,18 +91,19 @@ func BuildCreateCommand(
 // configured template at startup: executing against it surfaces missing-field
 // references (which parse cleanly but fail at render time) before the first poll.
 var sampleTemplateData = taskTemplateData{
-	Version:         "go1.0.0",
-	Number:          "1.0.0",
-	ReleaseKind:     "patch",
-	PreviousVersion: "go0.9.0",
-	ReleaseNotesURL: releaseNotesBaseURL + "go1.0.0",
-	DownloadsURL:    downloadsURL,
+	ShortID:  "SENTRY-TEST-1",
+	Date:     "2026-01-01",
+	Title:    "Example unresolved error",
+	Project:  "nuke-prod",
+	IssueURL: "https://bborbe.sentry.io/organizations/bborbe/issues/1/",
 }
 
 // ParseTaskTemplate parses text as a named Go text/template and validates it by
 // rendering against sample data, so a template referencing an unknown field
 // fails fast at startup rather than silently skipping every emit. Empty text
 // returns (nil, nil) ⇒ the built-in default is used.
+//
+// Paired with ParseTaskTemplateDefault per go-parse/paired-parse-and-parsedefault.
 func ParseTaskTemplate(ctx context.Context, name, text string) (*template.Template, error) {
 	if text == "" {
 		return nil, nil
@@ -125,6 +116,23 @@ func ParseTaskTemplate(ctx context.Context, name, text string) (*template.Templa
 		return nil, errors.Wrapf(ctx, err, "validate %s template %q", name, text)
 	}
 	return tmpl, nil
+}
+
+// ParseTaskTemplateDefault parses text as a named Go text/template (same core
+// logic as ParseTaskTemplate) but returns the fallback template on parse or
+// validation failure instead of an error — for call sites that prefer a safe
+// default over fail-fast. Paired with ParseTaskTemplate per
+// go-parse/paired-parse-and-parsedefault.
+func ParseTaskTemplateDefault(
+	ctx context.Context,
+	name, text string,
+	fallback *template.Template,
+) *template.Template {
+	tmpl, err := ParseTaskTemplate(ctx, name, text)
+	if err != nil {
+		return fallback
+	}
+	return tmpl
 }
 
 // renderTemplate executes tmpl (or fallback when tmpl is nil) against data and
@@ -146,25 +154,26 @@ func renderTemplate(
 }
 
 func buildFrontmatter(
-	newVersion string,
-	previousVersion string,
-	releaseKind string,
+	shortID string,
+	projectSlug string,
+	issueURL string,
+	date string,
 	taskIDStr string,
 	title string,
 	cfg TaskConfig,
 ) agentlib.TaskFrontmatter {
 	return agentlib.TaskFrontmatter{
-		"task_type":         "go-version-update",
-		"assignee":          cfg.Assignee,
-		"phase":             cfg.Phase,
-		"status":            cfg.Status,
-		"stage":             cfg.Stage,
-		"task_identifier":   taskIDStr,
-		"title":             title,
-		"new_version":       newVersion,
-		"previous_version":  previousVersion,
-		"release_kind":      releaseKind,
-		"release_notes_url": releaseNotesBaseURL + newVersion,
+		"task_type":       "sentry-issue-analyzer",
+		"assignee":        cfg.Assignee,
+		"phase":           cfg.Phase,
+		"status":          cfg.Status,
+		"stage":           cfg.Stage,
+		"task_identifier": taskIDStr,
+		"title":           title,
+		"short_id":        shortID,
+		"project":         projectSlug,
+		"date":            date,
+		"issue_url":       issueURL,
 	}
 }
 

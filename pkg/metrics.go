@@ -11,17 +11,24 @@ import "github.com/prometheus/client_golang/prometheus"
 // Metrics is the observable counter surface required by [[Watcher Writing Guide]]
 // § Required observability.
 type Metrics interface {
-	// IncPollCycle — result: "success" | "go_dev_error" | "image_check_error" | "build_error"
+	// IncPollCycle — result: "success" | "sentry_error"
 	IncPollCycle(result string)
 
 	// IncPublished — status: "create" | "error"
 	IncPublished(status string)
 
-	// IncFilterSkipped — reason: "version_unchanged" | "image_not_ready"
+	// IncFilterSkipped — reason: "project_not_in_scope" | "already_seen" |
+	// "missing_short_id" | "invalid_date" | "build_error"
 	IncFilterSkipped(reason string)
+
+	// IncIssuesScanned — sanity check on the per-cycle scan size.
+	IncIssuesScanned(count int)
 }
 
-const metricNamespace = "go_version_watcher"
+// metricNamespace is the single Prometheus metric namespace for this binary
+// (must match the binary name per [[Watcher Writing Guide]]). A lone default,
+// not a member of a closed enum set, so it stays an untyped string.
+const metricNamespace = "sentry_watcher"
 
 // NewMetrics returns the Prometheus-backed Metrics implementation registered
 // against the supplied Registerer. Pass nil for the default registry.
@@ -45,21 +52,29 @@ func NewMetrics(registerer prometheus.Registerer) Metrics {
 		filterSkippedTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: metricNamespace,
 			Name:      "filter_skipped_total",
-			Help:      "Total cycles filtered out by reason.",
+			Help:      "Total issues filtered out by reason.",
 		}, []string{"reason"}),
+		issuesScannedTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Namespace: metricNamespace,
+			Name:      "issues_scanned_total",
+			Help:      "Total Sentry issues scanned across poll cycles.",
+		}),
 	}
 	registerer.MustRegister(
 		m.pollCycleTotal,
 		m.publishedTotal,
 		m.filterSkippedTotal,
+		m.issuesScannedTotal,
 	)
-	for _, r := range []string{"success", "go_dev_error", "image_check_error", "build_error"} {
+	for _, r := range []string{"success", "sentry_error"} {
 		m.pollCycleTotal.WithLabelValues(r).Add(0)
 	}
 	for _, s := range []string{"create", "error"} {
 		m.publishedTotal.WithLabelValues(s).Add(0)
 	}
-	for _, r := range []string{"version_unchanged", "image_not_ready"} {
+	for _, r := range []string{
+		"project_not_in_scope", "already_seen", "missing_short_id", "invalid_date", "build_error",
+	} {
 		m.filterSkippedTotal.WithLabelValues(r).Add(0)
 	}
 	return m
@@ -69,6 +84,7 @@ type prometheusMetrics struct {
 	pollCycleTotal     *prometheus.CounterVec
 	publishedTotal     *prometheus.CounterVec
 	filterSkippedTotal *prometheus.CounterVec
+	issuesScannedTotal prometheus.Counter
 }
 
 func (m *prometheusMetrics) IncPollCycle(result string) {
@@ -81,4 +97,8 @@ func (m *prometheusMetrics) IncPublished(status string) {
 
 func (m *prometheusMetrics) IncFilterSkipped(reason string) {
 	m.filterSkippedTotal.WithLabelValues(reason).Inc()
+}
+
+func (m *prometheusMetrics) IncIssuesScanned(count int) {
+	m.issuesScannedTotal.Add(float64(count))
 }

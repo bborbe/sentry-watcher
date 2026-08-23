@@ -39,22 +39,19 @@ func CreateWatcher(
 	cursorPath string,
 	metrics pkg.Metrics,
 	cfg pkg.TaskConfig,
-	seedVersion string,
+	projectAllowlist []string,
+	seedDate string,
+	sentryCfg pkg.SentryConfig,
 ) pkg.Watcher {
-	client := pkg.NewGoDevClient(httpClient, pkg.DefaultGoDevURL)
-	imageChecker := pkg.NewImageChecker(
-		httpClient,
-		pkg.DefaultDockerHubTokenURL,
-		pkg.DefaultDockerHubRegistryURL,
-	)
+	client := pkg.NewSentryClient(httpClient, sentryCfg)
 	publisher := pkg.NewTaskPublisher(sender, metrics)
 	return pkg.NewWatcher(
 		client,
-		imageChecker,
 		publisher,
 		metrics,
-		cursorPath,
+		pkg.NewFileCursorStore(cursorPath),
 		cfg,
-		seedVersion,
+		projectAllowlist,
+		seedDate,
 	)
 }

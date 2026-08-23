@@ -14,23 +14,25 @@ import (
 
 var _ = Describe("pkg.DeriveTaskID", func() {
 	It("is deterministic for identical inputs", func() {
-		first := pkg.DeriveTaskID("go1.27.0")
+		first := pkg.DeriveTaskID("SENTRY-TEST-1", "2026-08-23")
 		for i := 0; i < 10000; i++ {
-			Expect(pkg.DeriveTaskID("go1.27.0")).To(Equal(first))
+			Expect(pkg.DeriveTaskID("SENTRY-TEST-1", "2026-08-23")).To(Equal(first))
 		}
 	})
 
-	It("differs when version differs", func() {
-		Expect(pkg.DeriveTaskID("go1.27.0")).NotTo(Equal(pkg.DeriveTaskID("go1.26.5")))
+	It("differs when the short-id differs", func() {
+		Expect(pkg.DeriveTaskID("SENTRY-TEST-1", "2026-08-23")).
+			NotTo(Equal(pkg.DeriveTaskID("SENTRY-TEST-2", "2026-08-23")))
 	})
 
-	It("distinguishes patch-level versions", func() {
-		Expect(pkg.DeriveTaskID("go1.26.9")).NotTo(Equal(pkg.DeriveTaskID("go1.26.10")))
+	It("differs when the date differs (fresh daily task)", func() {
+		Expect(pkg.DeriveTaskID("SENTRY-TEST-1", "2026-08-23")).
+			NotTo(Equal(pkg.DeriveTaskID("SENTRY-TEST-1", "2026-08-24")))
 	})
 
 	It("pins the namespace contract", func() {
-		ns := uuid.MustParse("800ae6f3-d5ac-47e8-a330-958561a4e1ad")
-		expected := uuid.NewSHA1(ns, []byte("go-version:go1.27.0"))
-		Expect(pkg.DeriveTaskID("go1.27.0")).To(Equal(expected))
+		ns := uuid.MustParse("1b06ab0c-eede-481f-b6ee-e91b0708fba9")
+		expected := uuid.NewSHA1(ns, []byte("sentry:SENTRY-TEST-1:2026-08-23"))
+		Expect(pkg.DeriveTaskID("SENTRY-TEST-1", "2026-08-23")).To(Equal(expected))
 	})
 })

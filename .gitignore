@@ -4,4 +4,4 @@
 /.mcp-*
 /run-once
 /vendor/
-/go-version-watcher
+

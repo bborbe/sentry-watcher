@@ -1,5 +1,7 @@
-# Update Go to {{.Number}}
+# Analyze Sentry issue {{.ShortID}} - {{.Date}}
 
-Go {{.Number}} released ({{.ReleaseKind}}). Update your Go projects to this version.
-- Release notes: {{.ReleaseNotesURL}}
-- Downloads: {{.DownloadsURL}}
+Active unresolved Sentry alert (last activity {{.Date}}) in project {{.Project}}.
+- Issue: {{.ShortID}}
+- Project: {{.Project}}
+- Title: {{.Title}}
+- URL: {{.IssueURL}}

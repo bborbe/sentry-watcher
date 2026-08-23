@@ -50,19 +50,22 @@ var _ = Describe("Run", func() {
 		app = &runonce.Application{
 			Stage:          "dev",
 			CursorPath:     "/tmp/cursor.json",
+			SentryProjects: "hell,nuke-dev,nuke-prod,quant",
 			KafkaBrokers:   libkafka.Brokers{"localhost:9092"},
 			CreateProducer: fakeProducerFactory(GinkgoT()),
 		}
 	})
 
-	watcherMockFactory := func() runonce.WatcherFactory {
+	watcherMockFactory := func() runonce.WatcherFunc {
 		return func(
 			_ *http.Client,
 			_ task.CreateCommandSender,
 			_ string,
 			_ pkg.Metrics,
 			_ pkg.TaskConfig,
+			_ []string,
 			_ string,
+			_ pkg.SentryConfig,
 		) pkg.Watcher {
 			return watcherMock
 		}
