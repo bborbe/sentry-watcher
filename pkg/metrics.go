@@ -25,6 +25,9 @@ type Metrics interface {
 	IncIssuesScanned(count int)
 }
 
+// metricNamespace is the single Prometheus metric namespace for this binary
+// (must match the binary name per [[Watcher Writing Guide]]). A lone default,
+// not a member of a closed enum set, so it stays an untyped string.
 const metricNamespace = "sentry_watcher"
 
 // NewMetrics returns the Prometheus-backed Metrics implementation registered

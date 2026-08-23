@@ -21,6 +21,7 @@ import (
 	"github.com/bborbe/errors"
 	libhttp "github.com/bborbe/http"
 	libkafka "github.com/bborbe/kafka"
+	"github.com/bborbe/log"
 	"github.com/bborbe/run"
 	libsentry "github.com/bborbe/sentry"
 	"github.com/bborbe/service"
@@ -30,6 +31,7 @@ import (
 
 	"github.com/bborbe/sentry-watcher/pkg"
 	"github.com/bborbe/sentry-watcher/pkg/factory"
+	"github.com/bborbe/sentry-watcher/pkg/handler"
 )
 
 // httpClientTimeout bounds each Sentry API request.
@@ -157,22 +159,28 @@ func splitProjects(s string) []string {
 }
 
 // createHTTPServer serves the mandatory triple (/healthz, /readiness, /metrics)
-// plus the operational cursor-admin surface: /resetcursor (delete the cursor →
-// next poll cold-starts) and /setcursor/{shortId}/{date} (pin a short-id's last
-// emitted date), both dangerous-wrapped to require a passphrase, plus /trigger
-// which forces one immediate Poll. The watcher instance is shared with the poll
-// loop so /trigger drives the same collaborators.
+// plus the canonical admin surface: /setloglevel/{level} (runtime log-verbosity
+// flip), /gc (heap GC), /resetcursor (delete the cursor → next poll cold-starts)
+// and /setcursor/{shortId}/{date} (pin a short-id's last emitted date), both
+// dangerous-wrapped to require a passphrase, plus /trigger which forces one
+// immediate Poll. The watcher instance is shared with the poll loop so /trigger
+// drives the same collaborators.
 func (a *application) createHTTPServer(w pkg.Watcher) run.Func {
 	return func(ctx context.Context) error {
 		router := mux.NewRouter()
 		router.Path("/healthz").Handler(libhttp.NewPrintHandler("OK"))
 		router.Path("/readiness").Handler(libhttp.NewPrintHandler("OK"))
 		router.Path("/metrics").Handler(promhttp.Handler())
+		router.Path("/setloglevel/{level}").
+			Handler(log.NewSetLoglevelHandler(ctx, log.NewLogLevelSetter(2, 5*time.Minute)))
+		router.Path("/gc").Handler(libhttp.NewGarbageCollectorHandler())
 		router.Path("/resetcursor").
-			Handler(libhttp.NewDangerousHandlerWrapper(pkg.NewResetCursorHandler(a.CursorPath)))
+			Handler(libhttp.NewDangerousHandlerWrapper(
+				libhttp.NewErrorHandler(handler.NewResetCursorHandler(a.CursorPath))))
 		router.Path("/setcursor/{shortId}/{date}").
-			Handler(libhttp.NewDangerousHandlerWrapper(pkg.NewSetCursorHandler(a.CursorPath)))
-		router.Path("/trigger").Handler(pkg.NewTriggerHandler(w))
+			Handler(libhttp.NewDangerousHandlerWrapper(
+				libhttp.NewErrorHandler(handler.NewSetCursorHandler(a.CursorPath))))
+		router.Path("/trigger").Handler(libhttp.NewErrorHandler(handler.NewTriggerHandler(w)))
 		glog.V(2).Infof("http server listening on %s", a.Listen)
 		return libhttp.NewServer(a.Listen, router).Run(ctx)
 	}

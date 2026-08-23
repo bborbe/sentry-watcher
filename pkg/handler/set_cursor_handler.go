@@ -1,0 +1,69 @@
+// Copyright (c) 2026 Benjamin Borbe All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
+package handler
+
+import (
+	"context"
+	"net/http"
+	"time"
+
+	"github.com/bborbe/errors"
+	libhttp "github.com/bborbe/http"
+	"github.com/golang/glog"
+	"github.com/gorilla/mux"
+
+	"github.com/bborbe/sentry-watcher/pkg"
+)
+
+// SetCursorHandler handles POST /setcursor/{shortId}/{date}.
+type SetCursorHandler = libhttp.WithError
+
+// NewSetCursorHandler returns a handler that validates the {shortId} and {date}
+// URL variables (date in 2006-01-02 form) and writes the short-id's cursor entry
+// to that date. Setting it to a date before the issue's current activity date
+// makes the next poll emit a task; setting it to the current date suppresses
+// emit.
+//
+// Wrap with libhttp.NewDangerousHandlerWrapper at the call site to require a
+// passphrase — the bare handler does not enforce auth.
+func NewSetCursorHandler(cursorPath string) SetCursorHandler {
+	return &setCursorHandler{cursorPath: cursorPath}
+}
+
+type setCursorHandler struct {
+	cursorPath string
+}
+
+func (h *setCursorHandler) ServeHTTP(
+	ctx context.Context,
+	resp http.ResponseWriter,
+	req *http.Request,
+) error {
+	shortID := mux.Vars(req)["shortId"]
+	date := mux.Vars(req)["date"]
+	if shortID == "" || len(shortID) > 64 {
+		return libhttp.WrapWithStatusCode(
+			errors.Errorf(ctx, "invalid {shortId} path variable"),
+			http.StatusBadRequest,
+		)
+	}
+	if _, err := time.Parse("2006-01-02", date); err != nil {
+		return libhttp.WrapWithStatusCode(
+			errors.Wrapf(ctx, err, "invalid date %q", date),
+			http.StatusBadRequest,
+		)
+	}
+	cursor, err := pkg.LoadCursor(ctx, h.cursorPath)
+	if err != nil {
+		return errors.Wrapf(ctx, err, "load cursor before set")
+	}
+	cursor.Seen[shortID] = date
+	if err := pkg.SaveCursor(ctx, h.cursorPath, cursor); err != nil {
+		return errors.Wrapf(ctx, err, "save cursor after set")
+	}
+	glog.Warningf("cursor set shortID=%s date=%s", shortID, date)
+	_, _ = libhttp.WriteAndGlog(resp, "cursor set %s to %s", shortID, date)
+	return nil
+}

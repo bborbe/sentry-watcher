@@ -132,7 +132,8 @@ func (w *watcher) seedCursor(ctx context.Context, cursor *Cursor, issues []Issue
 		}
 		date, err := IssueDate(ctx, issue.LastSeen)
 		if err != nil {
-			glog.Warningf(
+			// V(2)-gated: a corrupt lastSeen on one issue must not flood the log.
+			glog.V(2).Infof(
 				"skip seed shortID=%s lastSeen=%q err=%v",
 				issue.ShortID,
 				issue.LastSeen,
@@ -177,7 +178,8 @@ func (w *watcher) skipReason(ctx context.Context, issue Issue, cursor *Cursor) s
 	}
 	date, err := IssueDate(ctx, issue.LastSeen)
 	if err != nil {
-		glog.Warningf(
+		// V(2)-gated: a corrupt lastSeen on one issue must not flood the log.
+		glog.V(2).Infof(
 			"skip issue shortID=%s lastSeen=%q err=%v",
 			issue.ShortID,
 			issue.LastSeen,

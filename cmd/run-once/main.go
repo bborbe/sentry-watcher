@@ -35,6 +35,13 @@ func main() {
 }
 
 // NewApplication creates an Application with default dependencies.
+//
+// Returns the concrete *Application (not an interface): Application is a
+// service.Main config/DTO struct whose fields are reflected for arg/env binding,
+// and the call site addresses its fields (&app.SentryDSN) for the SentryDSN/
+// SentryProxy wiring. The go-architecture/constructor-returns-interface rule
+// exempts DTO/config structs without a same-package interface; the sibling
+// watchers (e.g. github-release-watcher cmd/run-once) use the same shape.
 func NewApplication() *Application {
 	return &Application{
 		CreateWatcher: factory.CreateWatcher,

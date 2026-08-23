@@ -15,6 +15,8 @@ import (
 
 // DefaultCursorPath is the default cursor persistence location.
 // k8s mounts /data as a PVC; main.go binds CURSOR_PATH=DefaultCursorPath.
+// A single configuration default, not an enum-set member — see the Default*
+// rationale in pkg/sentryclient.go.
 const DefaultCursorPath = "/data/cursor.json"
 
 // Cursor is the per-short-id dedup state: the last UTC date (2006-01-02) a task

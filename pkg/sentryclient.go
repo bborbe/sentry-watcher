@@ -20,14 +20,21 @@ import (
 	"github.com/golang/glog"
 )
 
-// DefaultSentryURL is the base URL of the bborbe Sentry org.
-const DefaultSentryURL = "https://bborbe.sentry.io"
+// The Default* constants are single configuration defaults, not members of a
+// closed enum value set — the go-enum-type/typed-constants-with-collection rule
+// targets finite enum-like sets (status codes, kinds, modes); a default value
+// has no available-collection to enumerate, so they stay untyped strings like
+// every sibling watcher's Default* constants.
+const (
+	// DefaultSentryURL is the base URL of the bborbe Sentry org.
+	DefaultSentryURL = "https://bborbe.sentry.io"
 
-// DefaultSentryOrg is the Sentry org slug whose issues the watcher queries.
-const DefaultSentryOrg = "bborbe"
+	// DefaultSentryOrg is the Sentry org slug whose issues the watcher queries.
+	DefaultSentryOrg = "bborbe"
 
-// DefaultStatsPeriod is the default activity window for the org issues query.
-const DefaultStatsPeriod = "24h"
+	// DefaultStatsPeriod is the default activity window for the org issues query.
+	DefaultStatsPeriod = "24h"
+)
 
 // sentryPageSize is the max issues per page the org issues list endpoint accepts.
 const sentryPageSize = 100
@@ -76,6 +83,9 @@ type Project struct {
 }
 
 // SentryConfig groups the org-query connection settings for the Sentry client.
+// The API token is never logged here; the application arg fields that bind it
+// (main.go / cmd/run-once main.go SENTRY_API_TOKEN) carry display:"length" so
+// service.Main masks the value at startup.
 type SentryConfig struct {
 	URL         string // base URL, e.g. "https://bborbe.sentry.io"
 	Org         string // org slug, e.g. "bborbe"
@@ -114,6 +124,9 @@ func (c *sentryClient) UnresolvedIssues(ctx context.Context) ([]Issue, error) {
 	cursor := ""
 	pages := 0
 	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		pages++
 		if pages > maxPages {
 			return nil, errors.Errorf(ctx, "sentry issues pagination exceeded %d pages", maxPages)
@@ -151,6 +164,9 @@ func (c *sentryClient) fetchPage(ctx context.Context, cursor string) ([]Issue, s
 	var next string
 	var lastErr error
 	for attempt := 1; attempt <= c.cfg.MaxRetries; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return nil, "", err
+		}
 		page, next, lastErr = c.doPage(ctx, endpoint)
 		if lastErr == nil {
 			return page, next, nil
@@ -177,6 +193,7 @@ func (c *sentryClient) doPage(ctx context.Context, endpoint string) ([]Issue, st
 		return nil, "", errors.Wrapf(ctx, err, "create sentry request %s", endpoint)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.cfg.APIToken)
+	start := time.Now()
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, "", errors.Wrapf(ctx, err, "get %s", endpoint)
@@ -187,7 +204,10 @@ func (c *sentryClient) doPage(ctx context.Context, endpoint string) ([]Issue, st
 		}
 	}()
 	if resp.StatusCode != http.StatusOK {
-		glog.V(2).Infof("sentry issues fetch status=%d", resp.StatusCode)
+		glog.V(2).Infof(
+			"sentry issues fetch method=%s path=%s status=%d duration=%s",
+			req.Method, req.URL.Path, resp.StatusCode, time.Since(start),
+		)
 		retryAfter := parseRetryAfter(resp.Header.Get("Retry-After"))
 		return nil, "", &sentryHTTPError{status: resp.StatusCode, retryAfter: retryAfter}
 	}
@@ -204,8 +224,8 @@ func (c *sentryClient) doPage(ctx context.Context, endpoint string) ([]Issue, st
 	}
 	next := nextCursor(resp.Header.Get("Link"))
 	glog.V(2).Infof(
-		"sentry issues fetched status=%d issues=%d next=%q",
-		resp.StatusCode, len(page), next,
+		"sentry issues fetch method=%s path=%s status=%d issues=%d next=%q duration=%s",
+		req.Method, req.URL.Path, resp.StatusCode, len(page), next, time.Since(start),
 	)
 	return page, next, nil
 }

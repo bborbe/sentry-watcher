@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package pkg_test
+package handler_test
 
 import (
 	"context"
@@ -11,22 +11,25 @@ import (
 	"os"
 	"path/filepath"
 
+	libhttp "github.com/bborbe/http"
 	"github.com/gorilla/mux"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/bborbe/sentry-watcher/pkg"
+	"github.com/bborbe/sentry-watcher/pkg/handler"
 )
 
-// newRouter wraps handler on path in a mux router so {shortId}/{date} path
-// variables are populated exactly as they are in main.go's server.
-func newRouter(path string, handler http.Handler) http.Handler {
+// newRouter wraps a libhttp.WithError handler on path in a mux router (via
+// libhttp.NewErrorHandler) so {shortId}/{date} path variables are populated
+// exactly as they are in main.go's server.
+func newRouter(path string, h libhttp.WithError) http.Handler {
 	router := mux.NewRouter()
-	router.Path(path).Handler(handler)
+	router.Path(path).Handler(libhttp.NewErrorHandler(h))
 	return router
 }
 
-var _ = Describe("pkg.CursorHandler", func() {
+var _ = Describe("pkg.handler cursor handlers", func() {
 	var (
 		ctx        context.Context
 		tmpDir     string
@@ -45,17 +48,17 @@ var _ = Describe("pkg.CursorHandler", func() {
 		_ = os.RemoveAll(tmpDir) // #nosec G104 -- best-effort temp dir cleanup
 	})
 
-	serve := func(handler http.Handler, path string) *httptest.ResponseRecorder {
+	serve := func(router http.Handler, path string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPost, path, nil)
 		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
+		router.ServeHTTP(rec, req)
 		return rec
 	}
 
 	Describe("NewSetCursorHandler", func() {
 		It("writes the short-id date to the cursor (round-trip via LoadCursor)", func() {
 			router := newRouter("/setcursor/{shortId}/{date}",
-				pkg.NewSetCursorHandler(cursorPath))
+				handler.NewSetCursorHandler(cursorPath))
 			rec := serve(router, "/setcursor/SENTRY-TEST-1/2026-08-01")
 
 			Expect(rec.Code).To(Equal(http.StatusOK))
@@ -70,7 +73,7 @@ var _ = Describe("pkg.CursorHandler", func() {
 			}})).To(Succeed())
 
 			router := newRouter("/setcursor/{shortId}/{date}",
-				pkg.NewSetCursorHandler(cursorPath))
+				handler.NewSetCursorHandler(cursorPath))
 			rec := serve(router, "/setcursor/SENTRY-TEST-1/2026-08-01")
 
 			Expect(rec.Code).To(Equal(http.StatusOK))
@@ -84,7 +87,7 @@ var _ = Describe("pkg.CursorHandler", func() {
 
 		It("rejects an invalid date with 400 and does not write", func() {
 			router := newRouter("/setcursor/{shortId}/{date}",
-				pkg.NewSetCursorHandler(cursorPath))
+				handler.NewSetCursorHandler(cursorPath))
 			rec := serve(router, "/setcursor/SENTRY-TEST-1/not-a-date")
 
 			Expect(rec.Code).To(Equal(http.StatusBadRequest))
@@ -98,7 +101,7 @@ var _ = Describe("pkg.CursorHandler", func() {
 			req := httptest.NewRequest(http.MethodPost, "/setcursor/2026-08-01", nil)
 			req = mux.SetURLVars(req, map[string]string{"shortId": "", "date": "2026-08-01"})
 			rec := httptest.NewRecorder()
-			pkg.NewSetCursorHandler(cursorPath).ServeHTTP(rec, req)
+			libhttp.NewErrorHandler(handler.NewSetCursorHandler(cursorPath)).ServeHTTP(rec, req)
 
 			Expect(rec.Code).To(Equal(http.StatusBadRequest))
 		})
@@ -112,7 +115,7 @@ var _ = Describe("pkg.CursorHandler", func() {
 				}}),
 			).To(Succeed())
 
-			router := newRouter("/resetcursor", pkg.NewResetCursorHandler(cursorPath))
+			router := newRouter("/resetcursor", handler.NewResetCursorHandler(cursorPath))
 			rec := serve(router, "/resetcursor")
 
 			Expect(rec.Code).To(Equal(http.StatusOK))
@@ -125,9 +128,44 @@ var _ = Describe("pkg.CursorHandler", func() {
 		})
 
 		It("treats a missing cursor file as success", func() {
-			router := newRouter("/resetcursor", pkg.NewResetCursorHandler(cursorPath))
+			router := newRouter("/resetcursor", handler.NewResetCursorHandler(cursorPath))
 			rec := serve(router, "/resetcursor")
 			Expect(rec.Code).To(Equal(http.StatusOK))
 		})
 	})
+
+	Describe("NewTriggerHandler", func() {
+		It("invokes Poll once and returns 200", func() {
+			// Plain http.Handler wiring mirrors main.go's /trigger registration.
+			req := httptest.NewRequest(http.MethodPost, "/trigger", nil)
+			rec := httptest.NewRecorder()
+
+			watcher := &fakeWatcher{pollErr: nil}
+			libhttp.NewErrorHandler(handler.NewTriggerHandler(watcher)).ServeHTTP(rec, req)
+
+			Expect(rec.Code).To(Equal(http.StatusOK))
+			Expect(watcher.pollCalls).To(Equal(1))
+		})
+
+		It("propagates a Poll error", func() {
+			req := httptest.NewRequest(http.MethodPost, "/trigger", nil)
+			rec := httptest.NewRecorder()
+
+			watcher := &fakeWatcher{pollErr: context.Canceled}
+			libhttp.NewErrorHandler(handler.NewTriggerHandler(watcher)).ServeHTTP(rec, req)
+
+			Expect(rec.Code).NotTo(Equal(http.StatusOK))
+		})
+	})
 })
+
+// fakeWatcher is a minimal Watcher stub for the trigger-handler tests.
+type fakeWatcher struct {
+	pollErr   error
+	pollCalls int
+}
+
+func (f *fakeWatcher) Poll(ctx context.Context) error {
+	f.pollCalls++
+	return f.pollErr
+}
