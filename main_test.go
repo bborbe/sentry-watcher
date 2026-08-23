@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bborbe/cron"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/format"
@@ -21,6 +22,23 @@ var _ = Describe("Main", func() {
 	It("Compiles", func() {
 		_, err := gexec.Build(".", "-mod=mod", "-buildvcs=false")
 		Expect(err).NotTo(HaveOccurred())
+	})
+})
+
+// CronExpression guards the scheduler config. bborbe/cron's CreateDefaultParser
+// is strict 6-field (seconds-first); a 5-field "0 0 * * *" is rejected, and the
+// canonical daily-at-midnight default fires at the next 00:00Z.
+var _ = Describe("CronExpression", func() {
+	It("parses the canonical daily-at-midnight default", func() {
+		schedule, err := cron.CreateDefaultParser().Parse("0 0 0 * * ?")
+		Expect(err).NotTo(HaveOccurred())
+		now := time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)
+		Expect(schedule.Next(now)).To(Equal(time.Date(2026, 8, 24, 0, 0, 0, 0, time.UTC)))
+	})
+
+	It("rejects a 5-field expression instead of silently running hourly", func() {
+		_, err := cron.CreateDefaultParser().Parse("0 0 * * *")
+		Expect(err).To(HaveOccurred())
 	})
 })
 

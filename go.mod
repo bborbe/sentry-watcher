@@ -1,19 +1,20 @@
 module github.com/bborbe/sentry-watcher
 
-go 1.26.6
+go 1.27.0
 
 require (
 	github.com/IBM/sarama v1.60.1
 	github.com/bborbe/agent v0.81.1
 	github.com/bborbe/cqrs v0.6.6
-	github.com/bborbe/errors v1.5.17
+	github.com/bborbe/cron v1.8.27
+	github.com/bborbe/errors v1.5.20
 	github.com/bborbe/http v1.26.20
 	github.com/bborbe/kafka v1.25.8
 	github.com/bborbe/log v1.6.22
-	github.com/bborbe/run v1.9.34
-	github.com/bborbe/sentry v1.9.24
-	github.com/bborbe/service v1.10.8
-	github.com/bborbe/time v1.27.8
+	github.com/bborbe/run v1.9.37
+	github.com/bborbe/sentry v1.9.26
+	github.com/bborbe/service v1.10.9
+	github.com/bborbe/time v1.27.10
 	github.com/golang/glog v1.2.5
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
@@ -24,14 +25,14 @@ require (
 
 require (
 	github.com/Masterminds/semver/v3 v3.5.0 // indirect
-	github.com/bborbe/argument/v2 v2.12.34 // indirect
-	github.com/bborbe/collection v1.20.20 // indirect
+	github.com/bborbe/argument/v2 v2.12.35 // indirect
+	github.com/bborbe/collection v1.20.23 // indirect
 	github.com/bborbe/k8s v1.14.9 // indirect
 	github.com/bborbe/kv v1.21.9 // indirect
-	github.com/bborbe/math v1.3.18 // indirect
-	github.com/bborbe/parse v1.10.19 // indirect
+	github.com/bborbe/math v1.3.21 // indirect
+	github.com/bborbe/parse v1.10.21 // indirect
 	github.com/bborbe/strimzi v1.8.12 // indirect
-	github.com/bborbe/validation v1.4.19 // indirect
+	github.com/bborbe/validation v1.4.21 // indirect
 	github.com/bborbe/vault-cli v0.111.4 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
