@@ -190,6 +190,12 @@ func (c *sentryClient) fetchPage(ctx context.Context, cursor string) ([]Issue, s
 		if backoff < 0 {
 			break // non-retryable status (4xx except 429)
 		}
+		if glog.V(2) {
+			glog.Warningf(
+				"sentry issues fetch retry attempt=%d status=%d backoff=%s",
+				attempt, he.status, backoff,
+			)
+		}
 		if err := sleepCtx(ctx, backoff); err != nil {
 			return nil, "", err
 		}

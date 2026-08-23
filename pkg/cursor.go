@@ -29,6 +29,35 @@ type Cursor struct {
 	Seen map[string]string `json:"seen"`
 }
 
+//counterfeiter:generate -o ../mocks/cursor_store.go --fake-name CursorStore . CursorStore
+
+// CursorStore persists the watcher's cursor state between polls. The Watcher
+// depends on this interface (not on package-level LoadCursor/SaveCursor) so its
+// Poll logic is testable without real filesystem I/O
+// (go-composition/no-package-function-calls-in-business-logic).
+type CursorStore interface {
+	Load(ctx context.Context) (*Cursor, error)
+	Save(ctx context.Context, c *Cursor) error
+}
+
+// NewFileCursorStore returns the production CursorStore backed by the cursor
+// file at path (typically CURSOR_PATH /data/cursor.json on the PVC mount).
+func NewFileCursorStore(path string) CursorStore {
+	return &fileCursorStore{path: path}
+}
+
+type fileCursorStore struct {
+	path string
+}
+
+func (s *fileCursorStore) Load(ctx context.Context) (*Cursor, error) {
+	return LoadCursor(ctx, s.path)
+}
+
+func (s *fileCursorStore) Save(ctx context.Context, c *Cursor) error {
+	return SaveCursor(ctx, s.path, c)
+}
+
 // LoadCursor reads cursor state from path.
 // Missing file → fresh empty cursor (cold start is valid).
 // Corrupt file → error (caller should refuse to advance).

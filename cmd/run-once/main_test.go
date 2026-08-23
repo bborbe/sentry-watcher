@@ -56,7 +56,7 @@ var _ = Describe("Run", func() {
 		}
 	})
 
-	watcherMockFactory := func() runonce.WatcherFactory {
+	watcherMockFactory := func() runonce.WatcherFunc {
 		return func(
 			_ *http.Client,
 			_ task.CreateCommandSender,

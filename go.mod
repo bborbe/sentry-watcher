@@ -13,6 +13,7 @@ require (
 	github.com/bborbe/run v1.9.34
 	github.com/bborbe/sentry v1.9.24
 	github.com/bborbe/service v1.10.8
+	github.com/bborbe/time v1.27.8
 	github.com/golang/glog v1.2.5
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
@@ -30,7 +31,6 @@ require (
 	github.com/bborbe/math v1.3.18 // indirect
 	github.com/bborbe/parse v1.10.19 // indirect
 	github.com/bborbe/strimzi v1.8.12 // indirect
-	github.com/bborbe/time v1.27.8 // indirect
 	github.com/bborbe/validation v1.4.19 // indirect
 	github.com/bborbe/vault-cli v0.111.4 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect

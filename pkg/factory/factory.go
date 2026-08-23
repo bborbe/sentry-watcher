@@ -49,7 +49,7 @@ func CreateWatcher(
 		client,
 		publisher,
 		metrics,
-		cursorPath,
+		pkg.NewFileCursorStore(cursorPath),
 		cfg,
 		projectAllowlist,
 		seedDate,

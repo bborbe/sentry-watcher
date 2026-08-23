@@ -72,13 +72,14 @@ type Application struct {
 	// TopicPrefix selects the Kafka topic prefix used for CQRS topic construction
 	// (e.g. "develop" / "master"); independent of Stage. Empty means unprefixed topics.
 	TopicPrefix    base.TopicPrefix `required:"false" arg:"topic-prefix" env:"TOPIC_PREFIX" usage:"Kafka topic prefix for CQRS topic construction"`
-	CreateWatcher  WatcherFactory
+	CreateWatcher  WatcherFunc
 	CreateProducer SyncProducerFunc
 }
 
-// WatcherFactory creates a Watcher. Matches factory.CreateWatcher's signature
-// exactly so tests can substitute a mock-returning closure.
-type WatcherFactory func(
+// WatcherFunc creates a Watcher. Matches factory.CreateWatcher's signature
+// exactly so tests can substitute a mock-returning closure. Named per
+// go-functional-composition/func-type-name (interface + Func).
+type WatcherFunc func(
 	httpClient *http.Client,
 	sender task.CreateCommandSender,
 	cursorPath string,

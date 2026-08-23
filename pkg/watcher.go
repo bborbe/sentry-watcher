@@ -22,6 +22,10 @@ type Watcher interface {
 
 // NewWatcher wires the watcher's collaborators.
 //
+// store is the injected CursorStore (typically NewFileCursorStore) — the
+// watcher never calls the package-level LoadCursor/SaveCursor directly, so Poll
+// is testable without real filesystem I/O.
+//
 // projectAllowlist is the per-cluster project scope filter (e.g. hell,
 // nuke-dev, nuke-prod, quant): issues outside it are skipped.
 //
@@ -34,7 +38,7 @@ func NewWatcher(
 	client SentryClient,
 	publisher TaskPublisher,
 	metrics Metrics,
-	cursorPath string,
+	store CursorStore,
 	cfg TaskConfig,
 	projectAllowlist []string,
 	seedDate string,
@@ -43,7 +47,7 @@ func NewWatcher(
 		client:           client,
 		publisher:        publisher,
 		metrics:          metrics,
-		cursorPath:       cursorPath,
+		store:            store,
 		cfg:              cfg,
 		projectAllowlist: projectAllowlist,
 		seedDate:         seedDate,
@@ -54,7 +58,7 @@ type watcher struct {
 	client           SentryClient
 	publisher        TaskPublisher
 	metrics          Metrics
-	cursorPath       string
+	store            CursorStore
 	cfg              TaskConfig
 	projectAllowlist []string
 	seedDate         string
@@ -75,9 +79,9 @@ type watcher struct {
 //     the publish succeeds (controller dedup absorbs re-emit next cycle).
 //  6. Persist the cursor atomically and record success.
 func (w *watcher) Poll(ctx context.Context) error {
-	cursor, err := LoadCursor(ctx, w.cursorPath)
+	cursor, err := w.store.Load(ctx)
 	if err != nil {
-		return errors.Wrapf(ctx, err, "load cursor path=%s", w.cursorPath)
+		return errors.Wrapf(ctx, err, "load cursor")
 	}
 
 	issues, err := w.client.UnresolvedIssues(ctx)
@@ -114,8 +118,8 @@ func (w *watcher) Poll(ctx context.Context) error {
 		}
 	}
 
-	if err := SaveCursor(ctx, w.cursorPath, cursor); err != nil {
-		glog.Warningf("save cursor failed path=%s err=%v", w.cursorPath, err)
+	if err := w.store.Save(ctx, cursor); err != nil {
+		glog.Warningf("save cursor failed err=%v", err)
 	}
 	w.metrics.IncPollCycle("success")
 	return nil
@@ -147,8 +151,8 @@ func (w *watcher) seedCursor(ctx context.Context, cursor *Cursor, issues []Issue
 		cursor.Seen[issue.ShortID] = date
 		seeded++
 	}
-	if err := SaveCursor(ctx, w.cursorPath, cursor); err != nil {
-		glog.Warningf("save cursor failed on cold-start path=%s err=%v", w.cursorPath, err)
+	if err := w.store.Save(ctx, cursor); err != nil {
+		glog.Warningf("save cursor failed on cold-start err=%v", err)
 	}
 	glog.V(2).Infof("cold-start seed issues=%d", seeded)
 }

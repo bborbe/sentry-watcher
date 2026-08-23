@@ -63,7 +63,7 @@ var _ = Describe("pkg.Watcher.Poll", func() {
 			client,
 			publisher,
 			metrics,
-			cursorPath,
+			pkg.NewFileCursorStore(cursorPath),
 			pkg.TaskConfig{Stage: "prod", Assignee: "sentry-issue-analyzer"},
 			allowlist,
 			seedDate,
