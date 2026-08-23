@@ -13,6 +13,17 @@ import (
 
 //counterfeiter:generate -o ../mocks/task_publisher.go --fake-name TaskPublisher . TaskPublisher
 
+// CreateCommandSender mirrors task.CreateCommandSender (github.com/bborbe/agent)
+// so its mock can be counterfeiter-generated in this module. taskPublisher uses
+// the agent interface directly; this local alias exists only so the test can use
+// a generated double instead of a hand-rolled fake (counterfeiter cannot target
+// an interface in another module). The two are structurally identical.
+type CreateCommandSender interface {
+	SendCommand(ctx context.Context, cmd task.CreateCommand) error
+}
+
+//counterfeiter:generate -o ../mocks/task_create_command_sender.go --fake-name TaskCreateCommandSender . CreateCommandSender
+
 // TaskPublisher sends a pre-built CreateTaskCommand via the supplied
 // CreateCommandSender. Returns true on successful send, false on error.
 type TaskPublisher interface {
