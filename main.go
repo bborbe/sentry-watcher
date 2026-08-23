@@ -57,7 +57,6 @@ type application struct {
 	SentryOrg         string `required:"false" arg:"sentry-org"          env:"SENTRY_ORG"          usage:"Sentry org slug"                                                                    default:"bborbe"`
 	SentryAPIToken    string `required:"true"  arg:"sentry-api-token"    env:"SENTRY_API_TOKEN"    usage:"Sentry REST API Bearer token"                                                                                               display:"length"`
 	SentryProjects    string `required:"true"  arg:"sentry-projects"     env:"SENTRY_PROJECTS"     usage:"Comma-separated per-cluster project slug allowlist (hell,nuke-dev,nuke-prod,quant)" default:"hell,nuke-dev,nuke-prod,quant"`
-	SentryStatsPeriod string `required:"false" arg:"sentry-stats-period" env:"SENTRY_STATS_PERIOD" usage:"Activity window for the org issues query (e.g. 24h)"                                default:"24h"`
 
 	TaskAssignee string `required:"true"  arg:"task-assignee" env:"TASK_ASSIGNEE" usage:"Frontmatter assignee for published sentry-issue-analyzer tasks"                                                                                                  default:"sentry-issue-analyzer"`
 	TaskStatus   string `required:"true"  arg:"task-status"   env:"TASK_STATUS"   usage:"Frontmatter status for published sentry-issue-analyzer tasks"                                                                                                    default:"in_progress"`
@@ -129,10 +128,9 @@ func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 		projects,
 		a.SeedDate,
 		pkg.SentryConfig{
-			URL:         a.SentryURL,
-			Org:         a.SentryOrg,
-			APIToken:    a.SentryAPIToken,
-			StatsPeriod: a.SentryStatsPeriod,
+			URL:      a.SentryURL,
+			Org:      a.SentryOrg,
+			APIToken: a.SentryAPIToken,
 		},
 	)
 

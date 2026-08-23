@@ -32,9 +32,6 @@ const (
 
 	// DefaultSentryOrg is the Sentry org slug whose issues the watcher queries.
 	DefaultSentryOrg = "bborbe"
-
-	// DefaultStatsPeriod is the default activity window for the org issues query.
-	DefaultStatsPeriod = "24h"
 )
 
 // sentryPageSize is the max issues per page the org issues list endpoint accepts.
@@ -60,10 +57,10 @@ const maxPages = 1000
 
 // SentryClient is the upstream-source surface for the sentry-watcher.
 type SentryClient interface {
-	// UnresolvedIssues returns the org's unresolved issues with activity in the
-	// configured stats period, paged through to exhaustion. Returns an error on
-	// request failure, rate-limit exhaustion, or malformed responses — the
-	// caller holds the cursor and retries next poll cycle.
+	// UnresolvedIssues returns the org's unresolved issues, paged through to
+	// exhaustion. Returns an error on request failure, rate-limit exhaustion, or
+	// malformed responses — the caller holds the cursor and retries next poll
+	// cycle.
 	UnresolvedIssues(ctx context.Context) ([]Issue, error)
 }
 
@@ -90,10 +87,9 @@ type Project struct {
 // is the display:"length" on the application arg fields that bind SENTRY_API_TOKEN
 // (main.go / cmd/run-once main.go), which service.Main applies at startup.
 type SentryConfig struct {
-	URL         string // base URL, e.g. "https://bborbe.sentry.io"
-	Org         string // org slug, e.g. "bborbe"
-	APIToken    string `display:"length"` // Bearer token for the Sentry REST API
-	StatsPeriod string // activity window, e.g. "24h"
+	URL      string // base URL, e.g. "https://bborbe.sentry.io"
+	Org      string // org slug, e.g. "bborbe"
+	APIToken string `display:"length"` // Bearer token for the Sentry REST API
 
 	// MaxRetries bounds retry attempts on retryable responses (429/5xx); 0 → 3.
 	MaxRetries int
@@ -109,9 +105,6 @@ type SentryConfig struct {
 // NewSentryClient returns the production SentryClient backed by the given HTTP
 // client and org-query config, applying defaults for unset knobs.
 func NewSentryClient(httpClient *http.Client, cfg SentryConfig) SentryClient {
-	if cfg.StatsPeriod == "" {
-		cfg.StatsPeriod = DefaultStatsPeriod
-	}
 	if cfg.MaxRetries == 0 {
 		cfg.MaxRetries = defaultMaxRetries
 	}
@@ -160,7 +153,6 @@ func (c *sentryClient) UnresolvedIssues(ctx context.Context) ([]Issue, error) {
 func (c *sentryClient) fetchPage(ctx context.Context, cursor string) ([]Issue, string, error) {
 	query := url.Values{}
 	query.Set("query", "is:unresolved")
-	query.Set("statsPeriod", c.cfg.StatsPeriod)
 	query.Set("limit", strconv.Itoa(sentryPageSize))
 	if cursor != "" {
 		query.Set("cursor", cursor)
