@@ -127,6 +127,9 @@ func (w *watcher) Poll(ctx context.Context) error {
 func (w *watcher) seedCursor(ctx context.Context, cursor *Cursor, issues []Issue) {
 	seeded := 0
 	for _, issue := range issues {
+		if err := ctx.Err(); err != nil {
+			return
+		}
 		if !w.inScope(issue.Project.Slug) || issue.ShortID == "" {
 			continue
 		}
