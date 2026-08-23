@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- fix: stop pagination when Sentry's Link header marks the next link
+  `results="false"` — Sentry still emits a `rel="next"` URL on the final page,
+  and following the phantom cursor re-fetched the same empty page forever
+  (found live in the dev e2e: the poll looped every ~500ms until the maxPages
+  backstop). The results flag is now the pagination terminator.
 - fix: drop `statsPeriod` from the org-issues query — Sentry's org-issues
   endpoint treats `statsPeriod` as an event-recency filter, so the 24h window
   returned zero issues (real unresolved issues routinely sit 1-3 days past their
