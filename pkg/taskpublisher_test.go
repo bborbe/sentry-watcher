@@ -16,16 +16,6 @@ import (
 	"github.com/bborbe/sentry-watcher/pkg"
 )
 
-type fakeCreateCommandSender struct {
-	sendErr      error
-	capturedCmds []task.CreateCommand
-}
-
-func (f *fakeCreateCommandSender) SendCommand(_ context.Context, cmd task.CreateCommand) error {
-	f.capturedCmds = append(f.capturedCmds, cmd)
-	return f.sendErr
-}
-
 var _ = Describe("pkg.TaskPublisher", func() {
 	var cmd task.CreateCommand
 
@@ -38,25 +28,25 @@ var _ = Describe("pkg.TaskPublisher", func() {
 	})
 
 	It("returns true and calls IncPublished(\"create\") on send success", func() {
-		fakeSender := &fakeCreateCommandSender{}
+		sender := new(mocks.TaskCreateCommandSender)
 		fakeMetrics := new(mocks.Metrics)
-		publisher := pkg.NewTaskPublisher(fakeSender, fakeMetrics)
+		publisher := pkg.NewTaskPublisher(sender, fakeMetrics)
 
 		result := publisher.PublishCreate(context.Background(), cmd)
 
 		Expect(result).To(BeTrue())
 		Expect(fakeMetrics.IncPublishedCallCount()).To(Equal(1))
 		Expect(fakeMetrics.IncPublishedArgsForCall(0)).To(Equal("create"))
-		Expect(fakeSender.capturedCmds).To(HaveLen(1))
-		Expect(
-			fakeSender.capturedCmds[0].Frontmatter["task_type"],
-		).To(Equal("sentry-issue-analyzer"))
+		Expect(sender.SendCommandCallCount()).To(Equal(1))
+		_, sentCmd := sender.SendCommandArgsForCall(0)
+		Expect(sentCmd.Frontmatter["task_type"]).To(Equal("sentry-issue-analyzer"))
 	})
 
 	It("returns false and calls IncPublished(\"error\") on send failure", func() {
-		fakeSender := &fakeCreateCommandSender{sendErr: errors.New("kafka send failed")}
+		sender := new(mocks.TaskCreateCommandSender)
+		sender.SendCommandReturns(errors.New("kafka send failed"))
 		fakeMetrics := new(mocks.Metrics)
-		publisher := pkg.NewTaskPublisher(fakeSender, fakeMetrics)
+		publisher := pkg.NewTaskPublisher(sender, fakeMetrics)
 
 		result := publisher.PublishCreate(context.Background(), cmd)
 
