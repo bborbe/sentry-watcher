@@ -8,6 +8,7 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/bborbe/errors"
 	libhttp "github.com/bborbe/http"
@@ -36,37 +37,44 @@ func NewResetCursorHandler(cursorPath string) http.Handler {
 	)
 }
 
-// NewSetCursorHandler returns an HTTP handler that validates the {version} URL
-// variable as a Go version (e.g. go1.26.5) and writes it as the cursor's
-// LastSeenVersion. Setting it to a version lower than the current latest makes
-// the next poll emit a task; setting it to the current latest suppresses emit.
+// NewSetCursorHandler returns an HTTP handler that validates the {shortId} and
+// {date} URL variables (date in 2006-01-02 form) and writes the short-id's
+// cursor entry to that date. Setting it to a date before the issue's current
+// activity date makes the next poll emit a task; setting it to the current date
+// suppresses emit.
 //
 // Wrap with libhttp.NewDangerousHandlerWrapper at the call site to require a
 // passphrase — the bare handler does not enforce auth.
 //
-// Route: /setcursor/{version}. Invalid version → 400.
+// Route: /setcursor/{shortId}/{date}. Invalid date → 400.
 func NewSetCursorHandler(cursorPath string) http.Handler {
 	return libhttp.NewErrorHandler(
 		libhttp.WithErrorFunc(
 			func(ctx context.Context, resp http.ResponseWriter, req *http.Request) error {
-				version := mux.Vars(req)["version"]
-				if version == "" {
+				shortID := mux.Vars(req)["shortId"]
+				date := mux.Vars(req)["date"]
+				if shortID == "" {
 					return libhttp.WrapWithStatusCode(
-						errors.Errorf(ctx, "missing {version} path variable"),
+						errors.Errorf(ctx, "missing {shortId} path variable"),
 						http.StatusBadRequest,
 					)
 				}
-				if _, err := ParseVersion(ctx, version); err != nil {
+				if _, err := time.Parse("2006-01-02", date); err != nil {
 					return libhttp.WrapWithStatusCode(
-						errors.Wrapf(ctx, err, "invalid go version %q", version),
+						errors.Wrapf(ctx, err, "invalid date %q", date),
 						http.StatusBadRequest,
 					)
 				}
-				if err := SaveCursor(ctx, cursorPath, &Cursor{LastSeenVersion: version}); err != nil {
+				cursor, err := LoadCursor(ctx, cursorPath)
+				if err != nil {
+					return errors.Wrapf(ctx, err, "load cursor before set")
+				}
+				cursor.Seen[shortID] = date
+				if err := SaveCursor(ctx, cursorPath, cursor); err != nil {
 					return errors.Wrapf(ctx, err, "save cursor after set")
 				}
-				glog.Warningf("cursor set version=%s", version)
-				_, _ = libhttp.WriteAndGlog(resp, "cursor set to %s", version)
+				glog.Warningf("cursor set shortID=%s date=%s", shortID, date)
+				_, _ = libhttp.WriteAndGlog(resp, "cursor set %s to %s", shortID, date)
 				return nil
 			},
 		),

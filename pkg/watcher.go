@@ -13,8 +13,8 @@ import (
 
 //counterfeiter:generate -o ../mocks/watcher.go --fake-name Watcher . Watcher
 
-// Watcher polls go.dev for the max stable Go version and publishes a
-// CreateTaskCommand when it advances beyond the cursor.
+// Watcher polls the Sentry org for active unresolved issues and publishes one
+// CreateTaskCommand per (short-id, date).
 type Watcher interface {
 	// Poll runs one scan cycle. Safe to call repeatedly on an interval.
 	Poll(ctx context.Context) error
@@ -22,173 +22,185 @@ type Watcher interface {
 
 // NewWatcher wires the watcher's collaborators.
 //
-// seedVersion, when non-empty, is the Go version the cursor is seeded with on
-// cold start instead of the current latest, so the first poll can emit a task
-// for the current latest. Empty means seed to latest and emit nothing.
+// projectAllowlist is the per-cluster project scope filter (e.g. hell,
+// nuke-dev, nuke-prod, quant): issues outside it are skipped.
 //
-// imageChecker gates task emission on docker.io actually publishing the golang
-// image for the new version (go.dev releases 12h–1day before the image exists).
+// seedDate, when non-empty, makes the first poll (cold start) emit a task for
+// every in-scope active issue whose date is after the seed date, instead of
+// seeding silently — mirroring go-version's SEED_VERSION for end-to-end
+// verification. Empty means seed the cursor to the current state and emit
+// nothing on cold start.
 func NewWatcher(
-	client GoDevClient,
-	imageChecker ImageChecker,
+	client SentryClient,
 	publisher TaskPublisher,
 	metrics Metrics,
 	cursorPath string,
 	cfg TaskConfig,
-	seedVersion string,
+	projectAllowlist []string,
+	seedDate string,
 ) Watcher {
 	return &watcher{
-		client:       client,
-		imageChecker: imageChecker,
-		publisher:    publisher,
-		metrics:      metrics,
-		cursorPath:   cursorPath,
-		cfg:          cfg,
-		seedVersion:  seedVersion,
+		client:           client,
+		publisher:        publisher,
+		metrics:          metrics,
+		cursorPath:       cursorPath,
+		cfg:              cfg,
+		projectAllowlist: projectAllowlist,
+		seedDate:         seedDate,
 	}
 }
 
 type watcher struct {
-	client       GoDevClient
-	imageChecker ImageChecker
-	publisher    TaskPublisher
-	metrics      Metrics
-	cursorPath   string
-	cfg          TaskConfig
-	seedVersion  string
+	client           SentryClient
+	publisher        TaskPublisher
+	metrics          Metrics
+	cursorPath       string
+	cfg              TaskConfig
+	projectAllowlist []string
+	seedDate         string
 }
 
 // Poll implements Watcher. One cycle:
 //  1. Load cursor (cold-start safe).
-//  2. Query go.dev for the max stable version — on error hold the cursor,
-//     record go_dev_error, return nil.
-//  3. Cold start (empty cursor): with no seedVersion, seed cursor to latest and
-//     emit nothing; with a seedVersion, seed cursor to that lower version and
-//     fall through to the comparison so the first poll emits a task for latest.
-//  4. latest > cursor: check the docker image for latest exists — if not yet
-//     published, hold the cursor, record image_not_ready, retry next cycle.
-//  5. Image exists: build + publish one task; advance cursor on publish success.
-//  6. latest <= cursor: record version_unchanged (no task).
-//  7. Record success.
+//  2. Query Sentry for unresolved issues active in the stats period — on error
+//     hold the cursor, record sentry_error, return nil.
+//  3. Cold start (empty cursor): with no seedDate, seed the cursor with each
+//     in-scope issue's current date and emit nothing; with a seedDate, fall
+//     through so the first poll emits for every issue dated after the seed.
+//  4. For each in-scope issue, run the filter chain (scope, missing short-id,
+//     already-seen) — skipped issues record filter_skipped and emit nothing.
+//  5. Emit one task per (short-id, date); advance the cursor entry only when
+//     the publish succeeds (controller dedup absorbs re-emit next cycle).
+//  6. Persist the cursor atomically and record success.
 func (w *watcher) Poll(ctx context.Context) error {
 	cursor, err := LoadCursor(ctx, w.cursorPath)
 	if err != nil {
 		return errors.Wrapf(ctx, err, "load cursor path=%s", w.cursorPath)
 	}
 
-	latest, err := w.client.LatestStable(ctx)
+	issues, err := w.client.UnresolvedIssues(ctx)
 	if err != nil {
-		w.metrics.IncPollCycle("go_dev_error")
-		glog.Warningf("poll cycle aborted: go.dev query failed err=%v", err)
+		w.metrics.IncPollCycle("sentry_error")
+		glog.Warningf("poll cycle aborted: sentry query failed err=%v", err)
+		return nil
+	}
+	w.metrics.IncIssuesScanned(len(issues))
+
+	coldStart := len(cursor.Seen) == 0
+	if coldStart && w.seedDate == "" {
+		w.seedCursor(ctx, cursor, issues)
+		w.metrics.IncPollCycle("success")
 		return nil
 	}
 
-	if cursor.LastSeenVersion == "" {
-		if w.seedVersion == "" {
-			w.seedCursor(ctx, cursor, latest)
-			w.metrics.IncPollCycle("success")
-			return nil
+	for _, issue := range issues {
+		if reason := w.skipReason(ctx, issue, cursor, coldStart); reason != "" {
+			w.metrics.IncFilterSkipped(reason)
+			continue
 		}
-		if err := w.seedFromConfigured(ctx, cursor); err != nil {
-			return errors.Wrapf(ctx, err, "seed cursor from configured version")
+		if err := w.emit(ctx, cursor, issue); err != nil {
+			w.metrics.IncFilterSkipped("build_error")
+			glog.Errorf("emit task failed shortID=%s err=%v", issue.ShortID, err)
+			continue
 		}
-		// Fall through: compare latest against the seeded version so a task is
-		// emitted when latest > seedVersion and the cursor advances to latest.
 	}
 
-	previous, err := ParseVersion(ctx, cursor.LastSeenVersion)
-	if err != nil {
-		return errors.Wrapf(ctx, err, "parse stored cursor version %q", cursor.LastSeenVersion)
+	if err := SaveCursor(ctx, w.cursorPath, cursor); err != nil {
+		glog.Warningf("save cursor failed path=%s err=%v", w.cursorPath, err)
 	}
-
-	if previous.Less(latest) {
-		if err := w.emitWhenImageReady(ctx, cursor, previous, latest); err != nil {
-			return err
-		}
-	} else {
-		w.metrics.IncFilterSkipped("version_unchanged")
-		glog.V(2).Infof("version unchanged latest=%s cursor=%s", latest, previous)
-	}
-
 	w.metrics.IncPollCycle("success")
 	return nil
 }
 
-// emitWhenImageReady gates task emission on docker.io having published the
-// image for latest. When the image is not yet available (go.dev releases 12h–
-// 1day before the image exists) the cursor is held and the next cycle retries.
-func (w *watcher) emitWhenImageReady(
-	ctx context.Context,
-	cursor *Cursor,
-	previous, latest Version,
-) error {
-	exists, err := w.imageChecker.ImageExists(ctx, latest)
-	if err != nil {
-		w.metrics.IncPollCycle("image_check_error")
-		glog.Warningf("image check failed latest=%s err=%v", latest, err)
-		return nil
+// seedCursor records each in-scope issue's current date on cold start without
+// emitting a task (avoids a burst of tasks covering all historical activity on
+// first run).
+func (w *watcher) seedCursor(ctx context.Context, cursor *Cursor, issues []Issue) {
+	seeded := 0
+	for _, issue := range issues {
+		if !w.inScope(issue.Project.Slug) || issue.ShortID == "" {
+			continue
+		}
+		date, err := IssueDate(ctx, issue.LastSeen)
+		if err != nil {
+			glog.Warningf(
+				"skip seed shortID=%s lastSeen=%q err=%v",
+				issue.ShortID,
+				issue.LastSeen,
+				err,
+			)
+			continue
+		}
+		cursor.Seen[issue.ShortID] = date
+		seeded++
 	}
-	if !exists {
-		w.metrics.IncFilterSkipped("image_not_ready")
-		glog.V(2).
-			Infof("image not ready latest=%s cursor=%s — holding, retry next cycle", latest, previous)
-		w.metrics.IncPollCycle("success")
-		return nil
-	}
-	if err := w.emit(ctx, cursor, previous, latest); err != nil {
-		w.metrics.IncPollCycle("build_error")
-		glog.Errorf("emit task failed latest=%s: %v", latest, err)
-		return nil
-	}
-	return nil
-}
-
-// seedCursor records the current max stable version on cold start without
-// emitting a task (avoids a spurious update task on first run).
-func (w *watcher) seedCursor(ctx context.Context, cursor *Cursor, latest Version) {
-	cursor.LastSeenVersion = latest.String()
 	if err := SaveCursor(ctx, w.cursorPath, cursor); err != nil {
 		glog.Warningf("save cursor failed on cold-start path=%s err=%v", w.cursorPath, err)
 	}
-	glog.V(2).Infof("cold-start seed version=%s", latest)
+	glog.V(2).Infof("cold-start seed issues=%d", seeded)
 }
 
-// seedFromConfigured seeds the cold-start cursor with the configured
-// seedVersion (a version lower than the current latest) and persists it, so the
-// caller can fall through to the normal comparison and emit a task for latest.
-// Returns an error if seedVersion is not a valid Go version.
-func (w *watcher) seedFromConfigured(ctx context.Context, cursor *Cursor) error {
-	if _, err := ParseVersion(ctx, w.seedVersion); err != nil {
-		return errors.Wrapf(ctx, err, "parse seed version %q", w.seedVersion)
+// skipReason runs the per-issue filter chain and returns the skip metric label,
+// or "" when the issue should be emitted. In seedDate cold-start mode the
+// already-seen rule compares the issue date against the configured seed date;
+// otherwise against the cursor's last emitted date for the short-id.
+func (w *watcher) skipReason(
+	ctx context.Context,
+	issue Issue,
+	cursor *Cursor,
+	coldStart bool,
+) string {
+	if !w.inScope(issue.Project.Slug) {
+		return "project_not_in_scope"
 	}
-	cursor.LastSeenVersion = w.seedVersion
-	if err := SaveCursor(ctx, w.cursorPath, cursor); err != nil {
-		glog.Warningf("save cursor failed on cold-start seed path=%s err=%v", w.cursorPath, err)
+	if issue.ShortID == "" {
+		return "missing_short_id"
 	}
-	glog.V(2).Infof("cold-start seed from configured version=%s", w.seedVersion)
-	return nil
-}
-
-// emit builds and publishes one task for the advance from previous to latest,
-// advancing the cursor only when the publish succeeds. A build error (e.g. a
-// template-execution failure) is returned so the caller can skip cleanly
-// without advancing the cursor.
-func (w *watcher) emit(ctx context.Context, cursor *Cursor, previous, latest Version) error {
-	releaseKind := "patch"
-	if latest.Major != previous.Major || latest.Minor != previous.Minor {
-		releaseKind = "minor"
-	}
-	cmd, err := BuildCreateCommand(ctx, latest.String(), previous.String(), releaseKind, w.cfg)
+	date, err := IssueDate(ctx, issue.LastSeen)
 	if err != nil {
-		return errors.Wrapf(ctx, err, "build create command for %s", latest)
+		glog.Warningf(
+			"skip issue shortID=%s lastSeen=%q err=%v",
+			issue.ShortID,
+			issue.LastSeen,
+			err,
+		)
+		return "invalid_date"
+	}
+	if coldStart && w.seedDate != "" {
+		if date <= w.seedDate {
+			return "already_seen"
+		}
+		return ""
+	}
+	if lastEmitted, seen := cursor.Seen[issue.ShortID]; seen && date <= lastEmitted {
+		return "already_seen"
+	}
+	return ""
+}
+
+// emit builds and publishes one task for the issue's current date, advancing
+// the cursor entry only when the publish succeeds.
+func (w *watcher) emit(ctx context.Context, cursor *Cursor, issue Issue) error {
+	date, err := IssueDate(ctx, issue.LastSeen)
+	if err != nil {
+		return errors.Wrapf(ctx, err, "extract date for %s", issue.ShortID)
+	}
+	cmd, err := BuildCreateCommand(ctx, issue, date, w.cfg)
+	if err != nil {
+		return errors.Wrapf(ctx, err, "build create command for %s", issue.ShortID)
 	}
 	if !w.publisher.PublishCreate(ctx, cmd) {
 		return nil
 	}
-	cursor.LastSeenVersion = latest.String()
-	if err := SaveCursor(ctx, w.cursorPath, cursor); err != nil {
-		// Task was already published; controller dedup absorbs re-emit next cycle.
-		glog.Warningf("save cursor failed post-publish path=%s err=%v", w.cursorPath, err)
-	}
+	cursor.Seen[issue.ShortID] = date
 	return nil
+}
+
+func (w *watcher) inScope(projectSlug string) bool {
+	for _, p := range w.projectAllowlist {
+		if p == projectSlug {
+			return true
+		}
+	}
+	return false
 }

@@ -18,8 +18,8 @@ import (
 	"github.com/bborbe/sentry-watcher/pkg"
 )
 
-// newRouter wraps handler on path in a mux router so {version} path variables
-// are populated exactly as they are in main.go's server.
+// newRouter wraps handler on path in a mux router so {shortId}/{date} path
+// variables are populated exactly as they are in main.go's server.
 func newRouter(path string, handler http.Handler) http.Handler {
 	router := mux.NewRouter()
 	router.Path(path).Handler(handler)
@@ -53,30 +53,63 @@ var _ = Describe("pkg.CursorHandler", func() {
 	}
 
 	Describe("NewSetCursorHandler", func() {
-		It("writes the version to the cursor (round-trip via LoadCursor)", func() {
-			router := newRouter("/setcursor/{version}", pkg.NewSetCursorHandler(cursorPath))
-			rec := serve(router, "/setcursor/go1.27.0")
+		It("writes the short-id date to the cursor (round-trip via LoadCursor)", func() {
+			router := newRouter("/setcursor/{shortId}/{date}",
+				pkg.NewSetCursorHandler(cursorPath))
+			rec := serve(router, "/setcursor/SENTRY-TEST-1/2026-08-01")
 
 			Expect(rec.Code).To(Equal(http.StatusOK))
 			loaded, err := pkg.LoadCursor(ctx, cursorPath)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(loaded.LastSeenVersion).To(Equal("go1.27.0"))
+			Expect(loaded.Seen["SENTRY-TEST-1"]).To(Equal("2026-08-01"))
 		})
 
-		It("rejects an invalid version with 400 and does not write", func() {
-			router := newRouter("/setcursor/{version}", pkg.NewSetCursorHandler(cursorPath))
-			rec := serve(router, "/setcursor/not-a-version")
+		It("preserves existing cursor entries on set", func() {
+			Expect(pkg.SaveCursor(ctx, cursorPath, &pkg.Cursor{Seen: map[string]string{
+				"SENTRY-TEST-2": "2026-08-22",
+			}})).To(Succeed())
+
+			router := newRouter("/setcursor/{shortId}/{date}",
+				pkg.NewSetCursorHandler(cursorPath))
+			rec := serve(router, "/setcursor/SENTRY-TEST-1/2026-08-01")
+
+			Expect(rec.Code).To(Equal(http.StatusOK))
+			loaded, err := pkg.LoadCursor(ctx, cursorPath)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(loaded.Seen).To(Equal(map[string]string{
+				"SENTRY-TEST-1": "2026-08-01",
+				"SENTRY-TEST-2": "2026-08-22",
+			}))
+		})
+
+		It("rejects an invalid date with 400 and does not write", func() {
+			router := newRouter("/setcursor/{shortId}/{date}",
+				pkg.NewSetCursorHandler(cursorPath))
+			rec := serve(router, "/setcursor/SENTRY-TEST-1/not-a-date")
 
 			Expect(rec.Code).To(Equal(http.StatusBadRequest))
 			_, err := os.Stat(cursorPath)
 			Expect(os.IsNotExist(err)).To(BeTrue())
+		})
+
+		It("rejects a missing short-id with 400", func() {
+			// An empty path segment would be redirected by the mux router (301),
+			// so inject the path vars directly to exercise the empty-short-id guard.
+			req := httptest.NewRequest(http.MethodPost, "/setcursor/2026-08-01", nil)
+			req = mux.SetURLVars(req, map[string]string{"shortId": "", "date": "2026-08-01"})
+			rec := httptest.NewRecorder()
+			pkg.NewSetCursorHandler(cursorPath).ServeHTTP(rec, req)
+
+			Expect(rec.Code).To(Equal(http.StatusBadRequest))
 		})
 	})
 
 	Describe("NewResetCursorHandler", func() {
 		It("removes the cursor file (next LoadCursor cold-starts empty)", func() {
 			Expect(
-				pkg.SaveCursor(ctx, cursorPath, &pkg.Cursor{LastSeenVersion: "go1.26.5"}),
+				pkg.SaveCursor(ctx, cursorPath, &pkg.Cursor{Seen: map[string]string{
+					"SENTRY-TEST-1": "2026-08-23",
+				}}),
 			).To(Succeed())
 
 			router := newRouter("/resetcursor", pkg.NewResetCursorHandler(cursorPath))
@@ -88,7 +121,7 @@ var _ = Describe("pkg.CursorHandler", func() {
 
 			loaded, err := pkg.LoadCursor(ctx, cursorPath)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(loaded.LastSeenVersion).To(BeEmpty())
+			Expect(loaded.Seen).To(BeEmpty())
 		})
 
 		It("treats a missing cursor file as success", func() {

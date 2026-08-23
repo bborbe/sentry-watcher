@@ -16,6 +16,11 @@ type Metrics struct {
 	incFilterSkippedArgsForCall []struct {
 		arg1 string
 	}
+	IncIssuesScannedStub        func(int)
+	incIssuesScannedMutex       sync.RWMutex
+	incIssuesScannedArgsForCall []struct {
+		arg1 int
+	}
 	IncPollCycleStub        func(string)
 	incPollCycleMutex       sync.RWMutex
 	incPollCycleArgsForCall []struct {
@@ -59,6 +64,38 @@ func (fake *Metrics) IncFilterSkippedArgsForCall(i int) string {
 	fake.incFilterSkippedMutex.RLock()
 	defer fake.incFilterSkippedMutex.RUnlock()
 	argsForCall := fake.incFilterSkippedArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *Metrics) IncIssuesScanned(arg1 int) {
+	fake.incIssuesScannedMutex.Lock()
+	fake.incIssuesScannedArgsForCall = append(fake.incIssuesScannedArgsForCall, struct {
+		arg1 int
+	}{arg1})
+	stub := fake.IncIssuesScannedStub
+	fake.recordInvocation("IncIssuesScanned", []interface{}{arg1})
+	fake.incIssuesScannedMutex.Unlock()
+	if stub != nil {
+		fake.IncIssuesScannedStub(arg1)
+	}
+}
+
+func (fake *Metrics) IncIssuesScannedCallCount() int {
+	fake.incIssuesScannedMutex.RLock()
+	defer fake.incIssuesScannedMutex.RUnlock()
+	return len(fake.incIssuesScannedArgsForCall)
+}
+
+func (fake *Metrics) IncIssuesScannedCalls(stub func(int)) {
+	fake.incIssuesScannedMutex.Lock()
+	defer fake.incIssuesScannedMutex.Unlock()
+	fake.IncIssuesScannedStub = stub
+}
+
+func (fake *Metrics) IncIssuesScannedArgsForCall(i int) int {
+	fake.incIssuesScannedMutex.RLock()
+	defer fake.incIssuesScannedMutex.RUnlock()
+	argsForCall := fake.incIssuesScannedArgsForCall[i]
 	return argsForCall.arg1
 }
 

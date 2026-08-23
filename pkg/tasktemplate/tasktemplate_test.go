@@ -14,23 +14,21 @@ import (
 	"github.com/bborbe/sentry-watcher/pkg/tasktemplate"
 )
 
-// data mirrors the taskbuilder render data for a representative minor release.
+// data mirrors the taskbuilder render data for a representative issue.
 type data struct {
-	Version         string
-	Number          string
-	ReleaseKind     string
-	PreviousVersion string
-	ReleaseNotesURL string
-	DownloadsURL    string
+	ShortID  string
+	Date     string
+	Title    string
+	Project  string
+	IssueURL string
 }
 
 var sample = data{
-	Version:         "go1.27.0",
-	Number:          "1.27.0",
-	ReleaseKind:     "minor",
-	PreviousVersion: "go1.26.5",
-	ReleaseNotesURL: "https://go.dev/doc/devel/release#go1.27.0",
-	DownloadsURL:    "https://go.dev/dl/",
+	ShortID:  "SENTRY-TEST-1",
+	Date:     "2026-08-23",
+	Title:    "boom",
+	Project:  "nuke-prod",
+	IssueURL: "https://bborbe.sentry.io/issues/1/",
 }
 
 func render(tmpl *template.Template) string {
@@ -42,17 +40,19 @@ func render(tmpl *template.Template) string {
 var _ = Describe("tasktemplate defaults", func() {
 	It("DefaultTitle renders a single-line title (no trailing newline)", func() {
 		out := render(tasktemplate.DefaultTitle)
-		Expect(out).To(Equal("Update Go to 1.27.0"))
+		Expect(out).To(Equal("Analyze Sentry issue SENTRY-TEST-1 - 2026-08-23"))
 		Expect(out).NotTo(ContainSubstring("\n"))
 	})
 
 	It("DefaultBody renders the deployment-agnostic default", func() {
 		out := render(tasktemplate.DefaultBody)
 		Expect(out).To(Equal(
-			"# Update Go to 1.27.0\n\n" +
-				"Go 1.27.0 released (minor). Update your Go projects to this version.\n" +
-				"- Release notes: https://go.dev/doc/devel/release#go1.27.0\n" +
-				"- Downloads: https://go.dev/dl/\n",
+			"# Analyze Sentry issue SENTRY-TEST-1 - 2026-08-23\n\n" +
+				"Active unresolved Sentry alert (last activity 2026-08-23) in project nuke-prod.\n" +
+				"- Issue: SENTRY-TEST-1\n" +
+				"- Project: nuke-prod\n" +
+				"- Title: boom\n" +
+				"- URL: https://bborbe.sentry.io/issues/1/\n",
 		))
 	})
 

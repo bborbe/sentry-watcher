@@ -15,12 +15,22 @@ import (
 	"github.com/bborbe/sentry-watcher/pkg"
 )
 
-// goldenDefaultBody is the exact default body for go1.27.0 (minor). Any change
-// to buildTaskBody's default output must be a deliberate edit here too.
-const goldenDefaultBody = "# Update Go to 1.27.0\n\n" +
-	"Go 1.27.0 released (minor). Update your Go projects to this version.\n" +
-	"- Release notes: https://go.dev/doc/devel/release#go1.27.0\n" +
-	"- Downloads: https://go.dev/dl/\n"
+// goldenDefaultBody is the exact default body for SENTRY-TEST-1 on 2026-08-23.
+// Any change to the default output must be a deliberate edit here too.
+const goldenDefaultBody = "# Analyze Sentry issue SENTRY-TEST-1 - 2026-08-23\n\n" +
+	"Active unresolved Sentry alert (last activity 2026-08-23) in project nuke-prod.\n" +
+	"- Issue: SENTRY-TEST-1\n" +
+	"- Project: nuke-prod\n" +
+	"- Title: boom\n" +
+	"- URL: https://bborbe.sentry.io/issues/1/\n"
+
+var testIssue = pkg.Issue{
+	ShortID:   "SENTRY-TEST-1",
+	Title:     "boom",
+	LastSeen:  "2026-08-23T04:00:00Z",
+	Permalink: "https://bborbe.sentry.io/issues/1/",
+	Project:   pkg.Project{Slug: "nuke-prod", Name: "nuke-prod"},
+}
 
 var _ = Describe("pkg.BuildCreateCommand", func() {
 	var ctx context.Context
@@ -35,45 +45,42 @@ var _ = Describe("pkg.BuildCreateCommand", func() {
 		ctx = context.Background()
 	})
 
-	It("produces the exact go-version-update frontmatter", func() {
+	It("produces the exact sentry-issue-analyzer frontmatter", func() {
 		cmd, err := pkg.BuildCreateCommand(
 			ctx,
-			"go1.27.0",
-			"go1.26.5",
-			"minor",
+			testIssue,
+			"2026-08-23",
 			pkg.TaskConfig{
 				Stage:    "prod",
-				Assignee: "human",
+				Assignee: "sentry-issue-analyzer",
 				Status:   "in_progress",
-				Phase:    "todo",
+				Phase:    "planning",
 			},
 		)
 		Expect(err).NotTo(HaveOccurred())
 
-		Expect(cmd.Frontmatter["task_type"]).To(Equal("go-version-update"))
-		Expect(cmd.Frontmatter["assignee"]).To(Equal("human"))
-		Expect(cmd.Frontmatter["phase"]).To(Equal("todo"))
+		Expect(cmd.Frontmatter["task_type"]).To(Equal("sentry-issue-analyzer"))
+		Expect(cmd.Frontmatter["assignee"]).To(Equal("sentry-issue-analyzer"))
+		Expect(cmd.Frontmatter["phase"]).To(Equal("planning"))
 		Expect(cmd.Frontmatter["status"]).To(Equal("in_progress"))
 		Expect(cmd.Frontmatter["stage"]).To(Equal("prod"))
-		Expect(cmd.Frontmatter["title"]).To(Equal("Update Go to 1.27.0"))
-		Expect(cmd.Frontmatter["new_version"]).To(Equal("go1.27.0"))
-		Expect(cmd.Frontmatter["previous_version"]).To(Equal("go1.26.5"))
-		Expect(cmd.Frontmatter["release_kind"]).To(Equal("minor"))
-		Expect(cmd.Frontmatter["release_notes_url"]).
-			To(Equal("https://go.dev/doc/devel/release#go1.27.0"))
+		Expect(
+			cmd.Frontmatter["title"],
+		).To(Equal("Analyze Sentry issue SENTRY-TEST-1 - 2026-08-23"))
+		Expect(cmd.Frontmatter["short_id"]).To(Equal("SENTRY-TEST-1"))
+		Expect(cmd.Frontmatter["project"]).To(Equal("nuke-prod"))
+		Expect(cmd.Frontmatter["date"]).To(Equal("2026-08-23"))
+		Expect(cmd.Frontmatter["issue_url"]).
+			To(Equal("https://bborbe.sentry.io/issues/1/"))
 		Expect(cmd.Frontmatter["task_identifier"]).
-			To(Equal(pkg.DeriveTaskID("go1.27.0").String()))
+			To(Equal(pkg.DeriveTaskID("SENTRY-TEST-1", "2026-08-23").String()))
 		Expect(string(cmd.TaskIdentifier)).To(Equal(cmd.Frontmatter["task_identifier"]))
-		Expect(cmd.Title).To(Equal("Update Go to 1.27.0"))
+		Expect(cmd.Title).To(Equal("Analyze Sentry issue SENTRY-TEST-1 - 2026-08-23"))
 	})
 
 	It("renders the default body byte-for-byte (golden)", func() {
 		cmd, err := pkg.BuildCreateCommand(
-			ctx,
-			"go1.27.0",
-			"go1.26.5",
-			"minor",
-			pkg.TaskConfig{Stage: "dev"},
+			ctx, testIssue, "2026-08-23", pkg.TaskConfig{Stage: "dev"},
 		)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(cmd.Body).To(Equal(goldenDefaultBody))
@@ -81,15 +88,12 @@ var _ = Describe("pkg.BuildCreateCommand", func() {
 
 	It("reflects env-configurable assignee/status/phase and a title suffix", func() {
 		cmd, err := pkg.BuildCreateCommand(
-			ctx,
-			"go1.27.0",
-			"go1.26.5",
-			"minor",
+			ctx, testIssue, "2026-08-23",
 			pkg.TaskConfig{
 				Stage:    "prod",
 				Assignee: "me",
 				Status:   "next",
-				Phase:    "planning",
+				Phase:    "execution",
 				Suffix:   "octopus",
 			},
 		)
@@ -97,91 +101,69 @@ var _ = Describe("pkg.BuildCreateCommand", func() {
 
 		Expect(cmd.Frontmatter["assignee"]).To(Equal("me"))
 		Expect(cmd.Frontmatter["status"]).To(Equal("next"))
-		Expect(cmd.Frontmatter["phase"]).To(Equal("planning"))
-		Expect(cmd.Frontmatter["title"]).To(Equal("Update Go to 1.27.0 - octopus"))
-		Expect(cmd.Title).To(Equal("Update Go to 1.27.0 - octopus"))
+		Expect(cmd.Frontmatter["phase"]).To(Equal("execution"))
+		Expect(cmd.Frontmatter["title"]).
+			To(Equal("Analyze Sentry issue SENTRY-TEST-1 - 2026-08-23 - octopus"))
+		Expect(cmd.Title).
+			To(Equal("Analyze Sentry issue SENTRY-TEST-1 - 2026-08-23 - octopus"))
 	})
 
 	It("renders a custom title template", func() {
 		cmd, err := pkg.BuildCreateCommand(
-			ctx,
-			"go1.27.0",
-			"go1.26.5",
-			"minor",
+			ctx, testIssue, "2026-08-23",
 			pkg.TaskConfig{
 				Stage:         "dev",
-				TitleTemplate: mustParse("title", "Go {{.Number}} is out"),
+				TitleTemplate: mustParse("title", "Sentry {{.ShortID}} on {{.Date}}"),
 			},
 		)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(cmd.Title).To(Equal("Go 1.27.0 is out"))
-		Expect(cmd.Frontmatter["title"]).To(Equal("Go 1.27.0 is out"))
+		Expect(cmd.Title).To(Equal("Sentry SENTRY-TEST-1 on 2026-08-23"))
+		Expect(cmd.Frontmatter["title"]).To(Equal("Sentry SENTRY-TEST-1 on 2026-08-23"))
 	})
 
 	It("appends the suffix to a custom-templated title", func() {
 		cmd, err := pkg.BuildCreateCommand(
-			ctx, "go1.27.0", "go1.26.5", "minor",
+			ctx, testIssue, "2026-08-23",
 			pkg.TaskConfig{
 				Stage:         "dev",
 				Suffix:        "octopus",
-				TitleTemplate: mustParse("title", "Go {{.Number}} is out"),
+				TitleTemplate: mustParse("title", "Sentry {{.ShortID}} on {{.Date}}"),
 			},
 		)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(cmd.Title).To(Equal("Go 1.27.0 is out - octopus"))
-		Expect(cmd.Frontmatter["title"]).To(Equal("Go 1.27.0 is out - octopus"))
+		Expect(cmd.Title).To(Equal("Sentry SENTRY-TEST-1 on 2026-08-23 - octopus"))
 	})
 
-	It("renders a custom body template using Version and ReleaseKind", func() {
+	It("renders a custom body template using the domain fields", func() {
 		cmd, err := pkg.BuildCreateCommand(
-			ctx, "go1.27.0", "go1.26.5", "minor",
+			ctx, testIssue, "2026-08-23",
 			pkg.TaskConfig{
 				Stage: "dev",
 				BodyTemplate: mustParse(
 					"body",
-					"{{.Version}} is a {{.ReleaseKind}} release (prev {{.PreviousVersion}})",
+					"{{.ShortID}} in {{.Project}} last seen {{.Date}}: {{.IssueURL}}",
 				),
 			},
 		)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(cmd.Body).To(Equal("go1.27.0 is a minor release (prev go1.26.5)"))
+		Expect(cmd.Body).To(Equal(
+			"SENTRY-TEST-1 in nuke-prod last seen 2026-08-23: https://bborbe.sentry.io/issues/1/",
+		))
 	})
 
-	It("default body is vault-agnostic — an operator-readable header plus URLs", func() {
+	It("default body is an operator-readable header plus the issue URL", func() {
 		cmd, err := pkg.BuildCreateCommand(
-			ctx,
-			"go1.27.0",
-			"go1.26.5",
-			"minor",
-			pkg.TaskConfig{Stage: "dev"},
+			ctx, testIssue, "2026-08-23", pkg.TaskConfig{Stage: "dev"},
 		)
 		Expect(err).NotTo(HaveOccurred())
-
-		Expect(cmd.Body).To(ContainSubstring("Go 1.27.0 released (minor)"))
-		Expect(cmd.Body).To(ContainSubstring("https://go.dev/doc/devel/release#go1.27.0"))
-		Expect(cmd.Body).To(ContainSubstring("https://go.dev/dl/"))
-		// The built-in default must stay reusable by anyone — no [[wikilinks]] or
-		// deployment-specific references. Vault-specific bodies come from
-		// TASK_BODY_TEMPLATE per deployment (e.g. quant).
+		Expect(cmd.Body).To(ContainSubstring("Analyze Sentry issue SENTRY-TEST-1 - 2026-08-23"))
+		Expect(cmd.Body).To(ContainSubstring("https://bborbe.sentry.io/issues/1/"))
 		Expect(cmd.Body).NotTo(ContainSubstring("[["))
-	})
-
-	It("classifies a patch bump title correctly", func() {
-		cmd, err := pkg.BuildCreateCommand(
-			ctx,
-			"go1.26.5",
-			"go1.26.4",
-			"patch",
-			pkg.TaskConfig{Stage: "dev"},
-		)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(cmd.Frontmatter["title"]).To(Equal("Update Go to 1.26.5"))
-		Expect(cmd.Frontmatter["release_kind"]).To(Equal("patch"))
 	})
 
 	It("returns an error when a title template references a missing field", func() {
 		cmd, err := pkg.BuildCreateCommand(
-			ctx, "go1.27.0", "go1.26.5", "minor",
+			ctx, testIssue, "2026-08-23",
 			pkg.TaskConfig{Stage: "dev", TitleTemplate: mustParse("title", "{{.DoesNotExist}}")},
 		)
 		Expect(err).To(HaveOccurred())
@@ -189,15 +171,10 @@ var _ = Describe("pkg.BuildCreateCommand", func() {
 		Expect(cmd.Frontmatter).To(BeNil())
 	})
 
-	It("rejects an invalid template string at parse time", func() {
-		_, err := template.New("title").Parse("{{.Number")
-		Expect(err).To(HaveOccurred())
-	})
-
 	It("same inputs produce identical commands", func() {
 		cfg := pkg.TaskConfig{Stage: "dev"}
-		cmd1, err1 := pkg.BuildCreateCommand(ctx, "go1.27.0", "go1.26.5", "minor", cfg)
-		cmd2, err2 := pkg.BuildCreateCommand(ctx, "go1.27.0", "go1.26.5", "minor", cfg)
+		cmd1, err1 := pkg.BuildCreateCommand(ctx, testIssue, "2026-08-23", cfg)
+		cmd2, err2 := pkg.BuildCreateCommand(ctx, testIssue, "2026-08-23", cfg)
 		Expect(err1).NotTo(HaveOccurred())
 		Expect(err2).NotTo(HaveOccurred())
 		Expect(cmd1.Frontmatter).To(Equal(cmd2.Frontmatter))
@@ -212,7 +189,7 @@ var _ = Describe("pkg.BuildCreateCommand", func() {
 	})
 
 	It("ParseTaskTemplate accepts a valid template", func() {
-		tmpl, err := pkg.ParseTaskTemplate(ctx, "title", "Go {{.Number}} out")
+		tmpl, err := pkg.ParseTaskTemplate(ctx, "title", "Sentry {{.ShortID}} on {{.Date}}")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(tmpl).NotTo(BeNil())
 	})

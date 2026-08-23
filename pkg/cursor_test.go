@@ -24,7 +24,7 @@ var _ = Describe("pkg.Cursor", func() {
 	BeforeEach(func() {
 		ctx = context.Background()
 		var err error
-		tmpDir, err = os.MkdirTemp("", "cursor-goversion-*")
+		tmpDir, err = os.MkdirTemp("", "cursor-sentry-*")
 		Expect(err).NotTo(HaveOccurred())
 	})
 
@@ -38,7 +38,8 @@ var _ = Describe("pkg.Cursor", func() {
 			cursor, err := pkg.LoadCursor(ctx, path)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(cursor).NotTo(BeNil())
-			Expect(cursor.LastSeenVersion).To(BeEmpty())
+			Expect(cursor.Seen).To(BeEmpty())
+			Expect(cursor.Seen).NotTo(BeNil()) // writable map, not nil
 		})
 
 		It("returns error on corrupt JSON", func() {
@@ -53,14 +54,18 @@ var _ = Describe("pkg.Cursor", func() {
 	Describe("SaveCursor", func() {
 		It("returns error when target directory does not exist", func() {
 			path := filepath.Join(tmpDir, "missing-dir", "cursor.json")
-			err := pkg.SaveCursor(ctx, path, &pkg.Cursor{LastSeenVersion: "go1.26.5"})
+			err := pkg.SaveCursor(
+				ctx,
+				path,
+				&pkg.Cursor{Seen: map[string]string{"SENTRY-TEST-1": "2026-08-23"}},
+			)
 			Expect(err).To(HaveOccurred())
 		})
 
 		It("does atomic write — no .tmp file remains after success", func() {
 			path := filepath.Join(tmpDir, "atomic.json")
 			Expect(
-				pkg.SaveCursor(ctx, path, &pkg.Cursor{LastSeenVersion: "go1.26.5"}),
+				pkg.SaveCursor(ctx, path, &pkg.Cursor{Seen: map[string]string{}}),
 			).To(Succeed())
 			_, err := os.Stat(path + ".tmp")
 			Expect(os.IsNotExist(err)).To(BeTrue())
@@ -68,14 +73,20 @@ var _ = Describe("pkg.Cursor", func() {
 	})
 
 	Describe("SaveCursor + LoadCursor round-trip", func() {
-		It("preserves LastSeenVersion", func() {
+		It("preserves the Seen map", func() {
 			path := filepath.Join(tmpDir, "roundtrip.json")
 			Expect(
-				pkg.SaveCursor(ctx, path, &pkg.Cursor{LastSeenVersion: "go1.27.0"}),
+				pkg.SaveCursor(ctx, path, &pkg.Cursor{Seen: map[string]string{
+					"SENTRY-TEST-1": "2026-08-23",
+					"SENTRY-TEST-2": "2026-08-22",
+				}}),
 			).To(Succeed())
 			loaded, err := pkg.LoadCursor(ctx, path)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(loaded.LastSeenVersion).To(Equal("go1.27.0"))
+			Expect(loaded.Seen).To(Equal(map[string]string{
+				"SENTRY-TEST-1": "2026-08-23",
+				"SENTRY-TEST-2": "2026-08-22",
+			}))
 		})
 	})
 })

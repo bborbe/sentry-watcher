@@ -17,13 +17,14 @@ import (
 // k8s mounts /data as a PVC; main.go binds CURSOR_PATH=DefaultCursorPath.
 const DefaultCursorPath = "/data/cursor.json"
 
-// Cursor is the single-value dedup state: the last Go version the watcher has
-// seen and acted on. Empty LastSeenVersion means cold start (no prior run).
+// Cursor is the per-short-id dedup state: the last UTC date (2006-01-02) a task
+// was emitted for each Sentry short-id. A nil/empty Seen map means cold start
+// (no prior run).
 //
 // Concurrency: not safe for concurrent use. The Watcher loads at poll start and
 // saves at poll end (single goroutine).
 type Cursor struct {
-	LastSeenVersion string `json:"last_seen_version"`
+	Seen map[string]string `json:"seen"`
 }
 
 // LoadCursor reads cursor state from path.
@@ -34,13 +35,16 @@ func LoadCursor(ctx context.Context, path string) (*Cursor, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			glog.V(2).Infof("cursor file not found, cold-start path=%s", path)
-			return &Cursor{}, nil
+			return &Cursor{Seen: map[string]string{}}, nil
 		}
 		return nil, errors.Wrapf(ctx, err, "read cursor file path=%s", path)
 	}
 	var c Cursor
 	if err := json.Unmarshal(data, &c); err != nil {
 		return nil, errors.Wrapf(ctx, err, "unmarshal cursor file path=%s", path)
+	}
+	if c.Seen == nil {
+		c.Seen = map[string]string{}
 	}
 	return &c, nil
 }

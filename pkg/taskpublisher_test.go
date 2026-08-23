@@ -32,7 +32,7 @@ var _ = Describe("pkg.TaskPublisher", func() {
 	BeforeEach(func() {
 		var err error
 		cmd, err = pkg.BuildCreateCommand(
-			context.Background(), "go1.27.0", "go1.26.5", "minor", pkg.TaskConfig{Stage: "dev"},
+			context.Background(), testIssue, "2026-08-23", pkg.TaskConfig{Stage: "dev"},
 		)
 		Expect(err).NotTo(HaveOccurred())
 	})
@@ -48,7 +48,9 @@ var _ = Describe("pkg.TaskPublisher", func() {
 		Expect(fakeMetrics.IncPublishedCallCount()).To(Equal(1))
 		Expect(fakeMetrics.IncPublishedArgsForCall(0)).To(Equal("create"))
 		Expect(fakeSender.capturedCmds).To(HaveLen(1))
-		Expect(fakeSender.capturedCmds[0].Frontmatter["task_type"]).To(Equal("go-version-update"))
+		Expect(
+			fakeSender.capturedCmds[0].Frontmatter["task_type"],
+		).To(Equal("sentry-issue-analyzer"))
 	})
 
 	It("returns false and calls IncPublished(\"error\") on send failure", func() {
