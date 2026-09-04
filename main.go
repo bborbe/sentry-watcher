@@ -17,8 +17,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bborbe/cron"
 	"github.com/bborbe/cqrs/base"
+	"github.com/bborbe/cron"
 	"github.com/bborbe/errors"
 	libhttp "github.com/bborbe/http"
 	libkafka "github.com/bborbe/kafka"
@@ -47,12 +47,12 @@ type application struct {
 	SentryDSN   string `required:"false" arg:"sentry-dsn"   env:"SENTRY_DSN"   usage:"SentryDSN"    display:"length"`
 	SentryProxy string `required:"false" arg:"sentry-proxy" env:"SENTRY_PROXY" usage:"Sentry Proxy"`
 
-	Listen       string           `required:"false" arg:"listen"        env:"LISTEN"        usage:"HTTP listen address (healthz/readiness/metrics)"                                                                                                                                                                            default:":9090"`
-	Stage        string           `required:"true"  arg:"stage"         env:"STAGE"         usage:"Deployment stage (dev|prod)"`
-	CronExpression string          `required:"false" arg:"cron-expression" env:"CRON_EXPRESSION" usage:"Cron expression (6-field, seconds-first) determining when the scan runs; uses the pod's local timezone (UTC by default)"                                                                                                default:"0 0 0 * * ?"`
-	CursorPath   string           `required:"false" arg:"cursor-path"   env:"CURSOR_PATH"   usage:"Cursor persistence path (mount a PVC)"                                                                                                                                                                                      default:"/data/cursor.json"`
-	SeedDate     string           `required:"false" arg:"seed-date"     env:"SEED_DATE"     usage:"Optional UTC date (2006-01-02) to seed the cursor with on cold-start instead of the current state; makes the first poll emit a task for every in-scope active issue dated after it. Empty = seed to current, emit nothing."`
-	KafkaBrokers libkafka.Brokers `required:"true"  arg:"kafka-brokers" env:"KAFKA_BROKERS" usage:"Comma-separated Kafka broker list"`
+	Listen         string           `required:"false" arg:"listen"          env:"LISTEN"          usage:"HTTP listen address (healthz/readiness/metrics)"                                                                                                                                                                            default:":9090"`
+	Stage          string           `required:"true"  arg:"stage"           env:"STAGE"           usage:"Deployment stage (dev|prod)"`
+	CronExpression string           `required:"false" arg:"cron-expression" env:"CRON_EXPRESSION" usage:"Cron expression (6-field, seconds-first) determining when the scan runs; uses the pod's local timezone (UTC by default)"                                                                                                    default:"0 0 0 * * ?"`
+	CursorPath     string           `required:"false" arg:"cursor-path"     env:"CURSOR_PATH"     usage:"Cursor persistence path (mount a PVC)"                                                                                                                                                                                      default:"/data/cursor.json"`
+	SeedDate       string           `required:"false" arg:"seed-date"       env:"SEED_DATE"       usage:"Optional UTC date (2006-01-02) to seed the cursor with on cold-start instead of the current state; makes the first poll emit a task for every in-scope active issue dated after it. Empty = seed to current, emit nothing."`
+	KafkaBrokers   libkafka.Brokers `required:"true"  arg:"kafka-brokers"   env:"KAFKA_BROKERS"   usage:"Comma-separated Kafka broker list"`
 
 	SentryURL      string `required:"false" arg:"sentry-url"       env:"SENTRY_URL"       usage:"Base URL of the Sentry org"                                                         default:"https://bborbe.sentry.io"`
 	SentryOrg      string `required:"false" arg:"sentry-org"       env:"SENTRY_ORG"       usage:"Sentry org slug"                                                                    default:"bborbe"`
@@ -200,4 +200,3 @@ func (a *application) createHTTPServer(w pkg.Watcher) run.Func {
 		return libhttp.NewServer(a.Listen, router).Run(ctx)
 	}
 }
-
