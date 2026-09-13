@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- feat: `pkg.HeartbeatChecker` verifies Sentry is actually retaining events. A quiet fleet and dead ingestion both yield "no new issues", so an issue count cannot separate them; the checker asserts a deliberately-tagged heartbeat event is visible instead, where absence is unambiguous. A query failure is reported as a query error, never as a missing heartbeat — a check that could not run is not evidence of failure
 - feat: `SENTRY_QUERY` (config `SentryConfig.Query`) overrides the org-issues search expression; empty keeps the existing `is:unresolved`. The query was hardcoded in `fetchPage`, so no caller could search for anything else — a zero-events detector needs a tag search to assert a heartbeat event arrived, which an unresolved-issue count cannot express
 - chore: add `goUpdate.autoUpdate` to `.maintainer.yaml` so github-update-go-agent keeps the repo in the fleet sweep — the key was absent and read as `false`, silently excluding it
 - fix: bump errcheck to v1.20.0 for Go 1.27 compatibility
