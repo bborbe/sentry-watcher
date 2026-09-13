@@ -33,6 +33,11 @@ func CreateKafkaSender(
 //
 // Pure composition — no I/O. The Kafka sync producer and the task sender are
 // constructed by the caller (so it controls connection lifecycle + cleanup).
+// heartbeatQuery, when non-empty, enables the zero-events heartbeat check: the
+// watcher asserts a heartbeat event matching that expression is visible in
+// Sentry. Empty disables the check, which is the correct configuration for a
+// deployment with no heartbeat emitter — an enabled check with no emitter
+// would report "ingestion dead" on every cycle.
 func CreateWatcher(
 	httpClient *http.Client,
 	sender task.CreateCommandSender,
@@ -42,9 +47,20 @@ func CreateWatcher(
 	projectAllowlist []string,
 	seedDate string,
 	sentryCfg pkg.SentryConfig,
+	heartbeatQuery string,
 ) pkg.Watcher {
 	client := pkg.NewSentryClient(httpClient, sentryCfg)
 	publisher := pkg.NewTaskPublisher(sender, metrics)
+
+	// The heartbeat check searches a different expression than the watcher's
+	// own scan, so it needs its own client rather than sharing the one above.
+	var heartbeat pkg.HeartbeatChecker
+	if heartbeatQuery != "" {
+		heartbeatCfg := sentryCfg
+		heartbeatCfg.Query = heartbeatQuery
+		heartbeat = pkg.NewHeartbeatChecker(pkg.NewSentryClient(httpClient, heartbeatCfg))
+	}
+
 	return pkg.NewWatcher(
 		client,
 		publisher,
@@ -53,5 +69,6 @@ func CreateWatcher(
 		cfg,
 		projectAllowlist,
 		seedDate,
+		heartbeat,
 	)
 }

@@ -11,7 +11,11 @@ import "github.com/prometheus/client_golang/prometheus"
 // Metrics is the observable counter surface required by [[Watcher Writing Guide]]
 // § Required observability.
 type Metrics interface {
-	// IncPollCycle — result: "success" | "sentry_error"
+	// IncPollCycle — result: "success" | "sentry_error" | "heartbeat_missing".
+	// "heartbeat_missing" means the cycle completed but no heartbeat event was
+	// visible in Sentry: ingestion is not retaining events. It is a separate
+	// result from "sentry_error" because the check itself succeeded — the
+	// finding is about Sentry's retention, not about reaching its API.
 	IncPollCycle(result string)
 
 	// IncPublished — status: "create" | "error"
@@ -66,7 +70,7 @@ func NewMetrics(registerer prometheus.Registerer) Metrics {
 		m.filterSkippedTotal,
 		m.issuesScannedTotal,
 	)
-	for _, r := range []string{"success", "sentry_error"} {
+	for _, r := range []string{"success", "sentry_error", "heartbeat_missing"} {
 		m.pollCycleTotal.WithLabelValues(r).Add(0)
 	}
 	for _, s := range []string{"create", "error"} {

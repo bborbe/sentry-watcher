@@ -34,6 +34,10 @@ type Watcher interface {
 // seeding silently — mirroring go-version's SEED_VERSION for end-to-end
 // verification. Empty means seed the cursor to the current state and emit
 // nothing on cold start.
+// heartbeat, when non-nil, is verified at the top of every poll cycle to
+// confirm Sentry is still retaining events. Nil disables the check, which is
+// the correct configuration for a deployment with no heartbeat emitter — an
+// enabled check with no emitter would alert on every cycle.
 func NewWatcher(
 	client SentryClient,
 	publisher TaskPublisher,
@@ -42,6 +46,7 @@ func NewWatcher(
 	cfg TaskConfig,
 	projectAllowlist []string,
 	seedDate string,
+	heartbeat HeartbeatChecker,
 ) Watcher {
 	return &watcher{
 		client:           client,
@@ -51,6 +56,7 @@ func NewWatcher(
 		cfg:              cfg,
 		projectAllowlist: projectAllowlist,
 		seedDate:         seedDate,
+		heartbeat:        heartbeat,
 	}
 }
 
@@ -62,6 +68,7 @@ type watcher struct {
 	cfg              TaskConfig
 	projectAllowlist []string
 	seedDate         string
+	heartbeat        HeartbeatChecker
 }
 
 // Poll implements Watcher. One cycle:
@@ -79,6 +86,8 @@ type watcher struct {
 //     the publish succeeds (controller dedup absorbs re-emit next cycle).
 //  6. Persist the cursor atomically and record success.
 func (w *watcher) Poll(ctx context.Context) error {
+	w.checkHeartbeat(ctx)
+
 	cursor, err := w.store.Load(ctx)
 	if err != nil {
 		return errors.Wrapf(ctx, err, "load cursor")
@@ -123,6 +132,24 @@ func (w *watcher) Poll(ctx context.Context) error {
 	}
 	w.metrics.IncPollCycle("success")
 	return nil
+}
+
+// checkHeartbeat records the zero-events signal when a configured heartbeat
+// check finds no heartbeat event in Sentry — the case where ingestion has
+// stopped retaining events, which an issue count alone cannot detect.
+//
+// It never aborts the poll. A missing heartbeat is a signal to record, not a
+// reason to skip the cycle: the watcher's own scan still has value, and
+// aborting here would suppress the normal task emission on the very cycles
+// where a real alert might also be arriving.
+func (w *watcher) checkHeartbeat(ctx context.Context) {
+	if w.heartbeat == nil {
+		return
+	}
+	if err := w.heartbeat.Verify(ctx); err != nil {
+		w.metrics.IncPollCycle("heartbeat_missing")
+		glog.Errorf("heartbeat check failed: %v", err)
+	}
 }
 
 // seedCursor records each in-scope issue's current date on cold start without

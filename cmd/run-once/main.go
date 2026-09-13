@@ -61,10 +61,12 @@ type Application struct {
 	SeedDate     string           `required:"false" arg:"seed-date"     env:"SEED_DATE"     usage:"Optional UTC date (2006-01-02) to seed the cursor with on cold-start; makes the first poll emit for every in-scope active issue dated after it. Empty = seed to current, emit nothing."`
 	KafkaBrokers libkafka.Brokers `required:"true"  arg:"kafka-brokers" env:"KAFKA_BROKERS" usage:"Comma-separated Kafka broker list"`
 
-	SentryURL      string `required:"false" arg:"sentry-url"       env:"SENTRY_URL"       usage:"Base URL of the Sentry org"                         default:"https://bborbe.sentry.io"`
-	SentryOrg      string `required:"false" arg:"sentry-org"       env:"SENTRY_ORG"       usage:"Sentry org slug"                                    default:"bborbe"`
-	SentryAPIToken string `required:"true"  arg:"sentry-api-token" env:"SENTRY_API_TOKEN" usage:"Sentry REST API Bearer token"                                                               display:"length"`
-	SentryProjects string `required:"true"  arg:"sentry-projects"  env:"SENTRY_PROJECTS"  usage:"Comma-separated per-cluster project slug allowlist" default:"hell,nuke-dev,nuke-prod,quant"`
+	SentryURL      string `required:"false" arg:"sentry-url"       env:"SENTRY_URL"       usage:"Base URL of the Sentry org"                                                                               default:"https://bborbe.sentry.io"`
+	SentryOrg      string `required:"false" arg:"sentry-org"       env:"SENTRY_ORG"       usage:"Sentry org slug"                                                                                          default:"bborbe"`
+	SentryAPIToken string `required:"true"  arg:"sentry-api-token" env:"SENTRY_API_TOKEN" usage:"Sentry REST API Bearer token"                                                                                                                     display:"length"`
+	SentryProjects string `required:"true"  arg:"sentry-projects"  env:"SENTRY_PROJECTS"  usage:"Comma-separated per-cluster project slug allowlist"                                                       default:"hell,nuke-dev,nuke-prod,quant"`
+	SentryQuery    string `required:"false" arg:"sentry-query"     env:"SENTRY_QUERY"     usage:"Sentry org-issues search expression; empty = is:unresolved."`
+	HeartbeatQuery string `required:"false" arg:"heartbeat-query"  env:"HEARTBEAT_QUERY"  usage:"Search expression for the zero-events heartbeat check (e.g. sentry-heartbeat). Empty disables the check."`
 
 	TargetVault string `required:"false" arg:"target-vault" env:"TARGET_VAULT" usage:"Obsidian vault slug for the emitted task (e.g. 'personal'); empty = controller default (openclaw)."`
 
@@ -87,6 +89,7 @@ type WatcherFunc func(
 	projectAllowlist []string,
 	seedDate string,
 	sentryCfg pkg.SentryConfig,
+	heartbeatQuery string,
 ) pkg.Watcher
 
 // SyncProducerFunc creates a Kafka sync producer. Matches
@@ -141,7 +144,9 @@ func (a *Application) Run(ctx context.Context, _ libsentry.Client) error {
 			URL:      a.SentryURL,
 			Org:      a.SentryOrg,
 			APIToken: a.SentryAPIToken,
+			Query:    a.SentryQuery,
 		},
+		a.HeartbeatQuery,
 	)
 
 	if err := w.Poll(ctx); err != nil {

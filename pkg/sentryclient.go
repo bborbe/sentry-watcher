@@ -37,6 +37,11 @@ const (
 // sentryPageSize is the max issues per page the org issues list endpoint accepts.
 const sentryPageSize = 100
 
+// defaultQuery is the org-issues search the watcher has always used: every
+// unresolved issue, regardless of recency. A heartbeat check overrides it via
+// SentryConfig.Query to search for a tag instead.
+const defaultQuery = "is:unresolved"
+
 // defaultMaxRetries bounds retry attempts on retryable Sentry API responses
 // (429/5xx) when SentryConfig.MaxRetries is unset.
 const defaultMaxRetries = 3
@@ -91,6 +96,12 @@ type SentryConfig struct {
 	Org      string // org slug, e.g. "bborbe"
 	APIToken string `display:"length"` // Bearer token for the Sentry REST API
 
+	// Query is the org-issues search expression. Empty → defaultQuery
+	// ("is:unresolved"), the watcher's existing behaviour. A heartbeat check
+	// sets a tag search instead — the zero-events detector asserts that such an
+	// event arrived recently, which an issue-count query cannot express.
+	Query string
+
 	// MaxRetries bounds retry attempts on retryable responses (429/5xx); 0 → 3.
 	MaxRetries int
 	// Backoff is the base sleep between retries; 0 → 5s. 429 honors the server's
@@ -113,6 +124,9 @@ func NewSentryClient(httpClient *http.Client, cfg SentryConfig) SentryClient {
 	}
 	if cfg.CurrentDateTimeGetter == nil {
 		cfg.CurrentDateTimeGetter = libtime.NewCurrentDateTime()
+	}
+	if cfg.Query == "" {
+		cfg.Query = defaultQuery
 	}
 	return &sentryClient{httpClient: httpClient, cfg: cfg}
 }
@@ -152,7 +166,7 @@ func (c *sentryClient) UnresolvedIssues(ctx context.Context) ([]Issue, error) {
 // error is returned immediately (the 24h poll is the retry).
 func (c *sentryClient) fetchPage(ctx context.Context, cursor string) ([]Issue, string, error) {
 	query := url.Values{}
-	query.Set("query", "is:unresolved")
+	query.Set("query", c.cfg.Query)
 	query.Set("limit", strconv.Itoa(sentryPageSize))
 	if cursor != "" {
 		query.Set("cursor", cursor)

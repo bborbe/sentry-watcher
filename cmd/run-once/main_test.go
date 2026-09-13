@@ -66,6 +66,7 @@ var _ = Describe("Run", func() {
 			_ []string,
 			_ string,
 			_ pkg.SentryConfig,
+			_ string,
 		) pkg.Watcher {
 			return watcherMock
 		}
