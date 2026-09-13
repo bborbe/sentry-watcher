@@ -54,11 +54,12 @@ type application struct {
 	SeedDate       string           `required:"false" arg:"seed-date"       env:"SEED_DATE"       usage:"Optional UTC date (2006-01-02) to seed the cursor with on cold-start instead of the current state; makes the first poll emit a task for every in-scope active issue dated after it. Empty = seed to current, emit nothing."`
 	KafkaBrokers   libkafka.Brokers `required:"true"  arg:"kafka-brokers"   env:"KAFKA_BROKERS"   usage:"Comma-separated Kafka broker list"`
 
-	SentryURL      string `required:"false" arg:"sentry-url"       env:"SENTRY_URL"       usage:"Base URL of the Sentry org"                                                                                                          default:"https://bborbe.sentry.io"`
-	SentryOrg      string `required:"false" arg:"sentry-org"       env:"SENTRY_ORG"       usage:"Sentry org slug"                                                                                                                     default:"bborbe"`
-	SentryAPIToken string `required:"true"  arg:"sentry-api-token" env:"SENTRY_API_TOKEN" usage:"Sentry REST API Bearer token"                                                                                                                                                display:"length"`
-	SentryProjects string `required:"true"  arg:"sentry-projects"  env:"SENTRY_PROJECTS"  usage:"Comma-separated per-cluster project slug allowlist (hell,nuke-dev,nuke-prod,quant)"                                                  default:"hell,nuke-dev,nuke-prod,quant"`
-	SentryQuery    string `required:"false" arg:"sentry-query"     env:"SENTRY_QUERY"     usage:"Sentry org-issues search expression; empty = is:unresolved. Set a tag search (e.g. sentry-heartbeat) for a heartbeat-arrival check."`
+	SentryURL      string `required:"false" arg:"sentry-url"       env:"SENTRY_URL"       usage:"Base URL of the Sentry org"                                                                                                                                                                    default:"https://bborbe.sentry.io"`
+	SentryOrg      string `required:"false" arg:"sentry-org"       env:"SENTRY_ORG"       usage:"Sentry org slug"                                                                                                                                                                               default:"bborbe"`
+	SentryAPIToken string `required:"true"  arg:"sentry-api-token" env:"SENTRY_API_TOKEN" usage:"Sentry REST API Bearer token"                                                                                                                                                                                                          display:"length"`
+	SentryProjects string `required:"true"  arg:"sentry-projects"  env:"SENTRY_PROJECTS"  usage:"Comma-separated per-cluster project slug allowlist (hell,nuke-dev,nuke-prod,quant)"                                                                                                            default:"hell,nuke-dev,nuke-prod,quant"`
+	SentryQuery    string `required:"false" arg:"sentry-query"     env:"SENTRY_QUERY"     usage:"Sentry org-issues search expression; empty = is:unresolved."`
+	HeartbeatQuery string `required:"false" arg:"heartbeat-query"  env:"HEARTBEAT_QUERY"  usage:"Search expression for the zero-events heartbeat check (e.g. sentry-heartbeat). Empty disables the check — enable only once a heartbeat emitter exists, or every cycle reports ingestion dead."`
 
 	TaskAssignee string `required:"true"  arg:"task-assignee" env:"TASK_ASSIGNEE" usage:"Frontmatter assignee for published sentry-issue-analyzer tasks"                                                                                                  default:"sentry-issue-analyzer"`
 	TaskStatus   string `required:"true"  arg:"task-status"   env:"TASK_STATUS"   usage:"Frontmatter status for published sentry-issue-analyzer tasks"                                                                                                    default:"in_progress"`
@@ -138,6 +139,7 @@ func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 			APIToken: a.SentryAPIToken,
 			Query:    a.SentryQuery,
 		},
+		a.HeartbeatQuery,
 	)
 
 	glog.V(2).Infof(

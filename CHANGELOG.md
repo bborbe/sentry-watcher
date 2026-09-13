@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- feat: the heartbeat check runs at the top of every poll cycle and records `poll_cycle_total{result="heartbeat_missing"}` when no heartbeat event is visible — the zero-events signal, distinct from `sentry_error` because the check itself succeeded. Enabled by `HEARTBEAT_QUERY` (empty = disabled, so a deployment without an emitter does not report ingestion dead every cycle). The check never aborts the poll: a missing heartbeat is a signal to record, not a reason to skip a cycle that may also be carrying a real alert
 - feat: `pkg.HeartbeatChecker` verifies Sentry is actually retaining events. A quiet fleet and dead ingestion both yield "no new issues", so an issue count cannot separate them; the checker asserts a deliberately-tagged heartbeat event is visible instead, where absence is unambiguous. A query failure is reported as a query error, never as a missing heartbeat — a check that could not run is not evidence of failure
 - feat: `SENTRY_QUERY` (config `SentryConfig.Query`) overrides the org-issues search expression; empty keeps the existing `is:unresolved`. The query was hardcoded in `fetchPage`, so no caller could search for anything else — a zero-events detector needs a tag search to assert a heartbeat event arrived, which an unresolved-issue count cannot express
 - chore: add `goUpdate.autoUpdate` to `.maintainer.yaml` so github-update-go-agent keeps the repo in the fleet sweep — the key was absent and read as `false`, silently excluding it

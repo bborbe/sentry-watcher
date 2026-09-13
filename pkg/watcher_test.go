@@ -67,6 +67,7 @@ var _ = Describe("pkg.Watcher.Poll", func() {
 			pkg.TaskConfig{Stage: "prod", Assignee: "sentry-issue-analyzer"},
 			allowlist,
 			seedDate,
+			nil, // heartbeat check disabled — covered by heartbeat_test.go
 		)
 	}
 
