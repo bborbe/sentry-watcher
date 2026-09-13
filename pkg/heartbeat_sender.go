@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/bborbe/errors"
+	libtime "github.com/bborbe/time"
 )
 
 // HeartbeatTag is the tag the emitter sets on its synthetic event and the
@@ -56,12 +57,18 @@ type HeartbeatSenderConfig struct {
 	ProxyURL string
 	// HTTPClient is the client used for the POST; nil → a 30s-timeout client.
 	HTTPClient *http.Client
+	// CurrentDateTimeGetter supplies the event timestamp (go-time/no-time-now-direct);
+	// nil → libtime.NewCurrentDateTime().
+	CurrentDateTimeGetter libtime.CurrentDateTimeGetter
 }
 
 // NewHeartbeatSender returns a sender for the given config.
 func NewHeartbeatSender(cfg HeartbeatSenderConfig) HeartbeatSender {
 	if cfg.HTTPClient == nil {
 		cfg.HTTPClient = &http.Client{Timeout: 30 * time.Second}
+	}
+	if cfg.CurrentDateTimeGetter == nil {
+		cfg.CurrentDateTimeGetter = libtime.NewCurrentDateTime()
 	}
 	return &heartbeatSender{cfg: cfg}
 }
@@ -75,7 +82,8 @@ func (s *heartbeatSender) Send(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	body, eventID, err := heartbeatEnvelope(ctx, s.cfg.DSN)
+	now := s.cfg.CurrentDateTimeGetter.Now().Time().UTC().Format(time.RFC3339)
+	body, eventID, err := heartbeatEnvelope(ctx, s.cfg.DSN, now)
 	if err != nil {
 		return err
 	}
@@ -121,12 +129,11 @@ func ingestEndpoint(ctx context.Context, cfg HeartbeatSenderConfig) (string, err
 
 // heartbeatEnvelope builds the two-line envelope the ingest endpoint expects:
 // a header line carrying the DSN, then the event item.
-func heartbeatEnvelope(ctx context.Context, dsn string) ([]byte, string, error) {
+func heartbeatEnvelope(ctx context.Context, dsn string, now string) ([]byte, string, error) {
 	eventID, err := newEventID()
 	if err != nil {
 		return nil, "", errors.Wrap(ctx, err, "generate event id")
 	}
-	now := time.Now().UTC().Format(time.RFC3339)
 	header := fmt.Sprintf(`{"event_id":%q,"sent_at":%q,"dsn":%q}`, eventID, now, dsn)
 	// level=error so the event surfaces as an issue — the checker reads the
 	// org-issues endpoint, which lists error groups only.

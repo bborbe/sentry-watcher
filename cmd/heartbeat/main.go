@@ -25,13 +25,16 @@ import (
 )
 
 func main() {
-	app := &application{}
+	app := &Application{}
 	os.Exit(service.Main(context.Background(), app, &app.SentryDSN, &app.SentryProxy))
 }
 
-// application is the heartbeat CLI config, with fields reflected for arg/env
+// Application is the heartbeat CLI config, with fields reflected for arg/env
 // binding by service.Main.
-type application struct {
+//
+// Exported so the external test package can construct it, matching the sibling
+// cmd/run-once Application.
+type Application struct {
 	// SentryDSN carries display:"length" so a startup log prints its length
 	// rather than the key.
 	SentryDSN   string `required:"true"  arg:"sentry-dsn"   env:"SENTRY_DSN"   usage:"Project DSN the heartbeat is sent with"                                                      display:"length"`
@@ -39,7 +42,7 @@ type application struct {
 }
 
 // Run sends one heartbeat and returns.
-func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
+func (a *Application) Run(ctx context.Context, _ libsentry.Client) error {
 	sender := pkg.NewHeartbeatSender(pkg.HeartbeatSenderConfig{
 		DSN:      a.SentryDSN,
 		ProxyURL: a.SentryProxy,
