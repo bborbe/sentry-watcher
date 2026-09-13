@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.2.1
 
 - fix: the heartbeat scan now honours the caller's context, stopping on cancellation instead of running the issue list to completion. An unreachable or slow Sentry makes that list large, and the caller's deadline is authoritative even over a bounded in-memory loop; the cancellation is reported as a wrapped context error, distinct from both the absent-heartbeat and the unparseable-`lastSeen` outcomes
 - refactor: move the heartbeat enable/disable decision out of `factory.CreateWatcher` and into the binaries' boot path, behind a new conditional-free `factory.CreateHeartbeatChecker`. `CreateWatcher` now receives a ready-built checker (or `nil`), which clears a `go-factory/no-conditional-in-body` MUST violation: a conditional in a factory means the factory is making a decision, and decisions belong at boot time or behind a provider — not in the wiring tree
