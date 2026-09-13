@@ -61,6 +61,11 @@ type application struct {
 	SentryQuery    string `required:"false" arg:"sentry-query"     env:"SENTRY_QUERY"     usage:"Sentry org-issues search expression; empty = is:unresolved."`
 	HeartbeatQuery string `required:"false" arg:"heartbeat-query"  env:"HEARTBEAT_QUERY"  usage:"Search expression for the zero-events heartbeat check (e.g. sentry-heartbeat). Empty disables the check — enable only once a heartbeat emitter exists, or every cycle reports ingestion dead."`
 
+	// HeartbeatMaxAge bounds the check: the org-issues endpoint applies no time
+	// window of its own, so a bare tag query matches a heartbeat from any point
+	// in the past and the check would pass forever after the first event.
+	HeartbeatMaxAge string `required:"false" arg:"heartbeat-max-age" env:"HEARTBEAT_MAX_AGE" usage:"How old the newest heartbeat may be and still count as present (Go duration, e.g. 6h); should match N. Parsed always, applied only when HEARTBEAT_QUERY is set." default:"6h"`
+
 	TaskAssignee string `required:"true"  arg:"task-assignee" env:"TASK_ASSIGNEE" usage:"Frontmatter assignee for published sentry-issue-analyzer tasks"                                                                                                  default:"sentry-issue-analyzer"`
 	TaskStatus   string `required:"true"  arg:"task-status"   env:"TASK_STATUS"   usage:"Frontmatter status for published sentry-issue-analyzer tasks"                                                                                                    default:"in_progress"`
 	TaskPhase    string `required:"true"  arg:"task-phase"    env:"TASK_PHASE"    usage:"Frontmatter phase for published sentry-issue-analyzer tasks"                                                                                                     default:"planning"`
@@ -75,19 +80,49 @@ type application struct {
 	TopicPrefix base.TopicPrefix `required:"false" arg:"topic-prefix" env:"TOPIC_PREFIX" usage:"Kafka topic prefix for CQRS topic construction"`
 }
 
-func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
-	// Fail fast on a malformed expression rather than surfacing it from inside
-	// the cron loop at the first schedule tick. CreateDefaultParser expects
-	// 6-field, seconds-first expressions (e.g. "0 0 0 * * ?"); a 5-field
-	// "0 0 * * *" silently means "every hour at second 0".
+// validateFlags fails fast on malformed flag values rather than surfacing them
+// from inside the poll loop at the first schedule tick.
+//
+// The cron check is explicit because CreateDefaultParser expects 6-field,
+// seconds-first expressions (e.g. "0 0 0 * * ?"); a 5-field "0 0 * * *"
+// silently means "every hour at second 0".
+func (a *application) validateFlags(ctx context.Context) error {
 	if _, err := cron.CreateDefaultParser().Parse(a.CronExpression); err != nil {
 		return errors.Wrapf(ctx, err, "parse cron expression %q", a.CronExpression)
 	}
-
 	if a.SeedDate != "" {
 		if _, err := time.Parse("2006-01-02", a.SeedDate); err != nil {
 			return errors.Wrapf(ctx, err, "parse seed date %q", a.SeedDate)
 		}
+	}
+	return nil
+}
+
+// heartbeatMaxAge resolves the heartbeat staleness bound, falling back to
+// DefaultHeartbeatMaxAge when unset.
+//
+// The default is applied here and not only via the arg's `default:` tag, so a
+// direct construction of this struct cannot end up with a zero bound — which
+// would report ingestion dead on every cycle.
+func (a *application) heartbeatMaxAge(ctx context.Context) (time.Duration, error) {
+	if a.HeartbeatMaxAge == "" {
+		return pkg.DefaultHeartbeatMaxAge, nil
+	}
+	parsed, err := time.ParseDuration(a.HeartbeatMaxAge)
+	if err != nil {
+		return 0, errors.Wrapf(ctx, err, "parse heartbeat max age %q", a.HeartbeatMaxAge)
+	}
+	return parsed, nil
+}
+
+func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
+	if err := a.validateFlags(ctx); err != nil {
+		return err
+	}
+
+	heartbeatMaxAge, err := a.heartbeatMaxAge(ctx)
+	if err != nil {
+		return err
 	}
 
 	projects := splitProjects(a.SentryProjects)
@@ -140,6 +175,7 @@ func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 			Query:    a.SentryQuery,
 		},
 		a.HeartbeatQuery,
+		heartbeatMaxAge,
 	)
 
 	glog.V(2).Infof(

@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- fix: bound the heartbeat check by age, so the zero-events detector can actually fire. The org-issues endpoint applies no time window of its own — `fetchPage` sends only `query`/`limit`/`cursor` — so `HEARTBEAT_QUERY=sentry-heartbeat` matched a heartbeat from *any* point in the past: the first event ever sent satisfied the check forever, and the detector stayed silent through a repeat of the 2026-09-06 blackout it exists to catch. `HeartbeatChecker` now requires a heartbeat newer than `HEARTBEAT_MAX_AGE` (default `6h`, the N the detector is specified at) and reports a stale-only result as `newest heartbeat is … past the … limit`. The bound is enforced in Go against each issue's own `lastSeen`, not in the search expression, so no Sentry search-syntax assumption is load-bearing — the sibling `statsPeriod` mechanism was already disproven on this endpoint. A present-but-unparseable `lastSeen` reports its own outcome, deliberately neither present nor absent
+
 ## v0.2.0
 
 - feat: `cmd/heartbeat` emits the synthetic event the checker asserts on — the emitter half of the zero-events detector. It posts an `application/x-sentry-envelope` payload through `SENTRY_PROXY` when set, so the heartbeat traverses the same path as real fleet events; a heartbeat that bypassed the proxy would prove nothing about the path that broke in the 2026-09-06 blackout. The event is `level: "error"`, not a message: the checker reads the org-issues endpoint, which lists error groups only, so a message-level event would never appear and the detector would report ingestion dead forever. `HeartbeatTag` and `HeartbeatSearchExpression` are shared constants so emitter and checker cannot drift. The image now builds `/heartbeat` alongside `/main` for a CronJob to run via entrypoint override

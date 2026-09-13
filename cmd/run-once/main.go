@@ -68,6 +68,11 @@ type Application struct {
 	SentryQuery    string `required:"false" arg:"sentry-query"     env:"SENTRY_QUERY"     usage:"Sentry org-issues search expression; empty = is:unresolved."`
 	HeartbeatQuery string `required:"false" arg:"heartbeat-query"  env:"HEARTBEAT_QUERY"  usage:"Search expression for the zero-events heartbeat check (e.g. sentry-heartbeat). Empty disables the check."`
 
+	// HeartbeatMaxAge bounds the check: the org-issues endpoint applies no time
+	// window of its own, so a bare tag query would match a heartbeat from any
+	// point in the past.
+	HeartbeatMaxAge string `required:"false" arg:"heartbeat-max-age" env:"HEARTBEAT_MAX_AGE" usage:"How old the newest heartbeat may be and still count as present (Go duration, e.g. 6h). Parsed always, applied only when HEARTBEAT_QUERY is set." default:"6h"`
+
 	TargetVault string `required:"false" arg:"target-vault" env:"TARGET_VAULT" usage:"Obsidian vault slug for the emitted task (e.g. 'personal'); empty = controller default (openclaw)."`
 
 	// TopicPrefix selects the Kafka topic prefix used for CQRS topic construction
@@ -90,6 +95,7 @@ type WatcherFunc func(
 	seedDate string,
 	sentryCfg pkg.SentryConfig,
 	heartbeatQuery string,
+	heartbeatMaxAge time.Duration,
 ) pkg.Watcher
 
 // SyncProducerFunc creates a Kafka sync producer. Matches
@@ -107,6 +113,18 @@ func (a *Application) Run(ctx context.Context, _ libsentry.Client) error {
 		if _, err := time.Parse("2006-01-02", a.SeedDate); err != nil {
 			return errors.Wrapf(ctx, err, "parse seed date %q", a.SeedDate)
 		}
+	}
+
+	// Default applied here rather than only via the arg's `default:` tag, so a
+	// direct construction of this struct cannot end up with a zero bound — which
+	// would report ingestion dead on every cycle.
+	heartbeatMaxAge := pkg.DefaultHeartbeatMaxAge
+	if a.HeartbeatMaxAge != "" {
+		parsed, err := time.ParseDuration(a.HeartbeatMaxAge)
+		if err != nil {
+			return errors.Wrapf(ctx, err, "parse heartbeat max age %q", a.HeartbeatMaxAge)
+		}
+		heartbeatMaxAge = parsed
 	}
 
 	projects := splitProjects(a.SentryProjects)
@@ -147,6 +165,7 @@ func (a *Application) Run(ctx context.Context, _ libsentry.Client) error {
 			Query:    a.SentryQuery,
 		},
 		a.HeartbeatQuery,
+		heartbeatMaxAge,
 	)
 
 	if err := w.Poll(ctx); err != nil {
