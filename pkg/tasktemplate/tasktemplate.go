@@ -33,3 +33,24 @@ var DefaultTitle = template.Must(
 // DefaultBody is the built-in body template used when no TASK_BODY_TEMPLATE
 // override is configured.
 var DefaultBody = template.Must(template.New("body").Parse(defaultBody))
+
+//go:embed heartbeat-title.md
+var heartbeatTitle string
+
+//go:embed heartbeat-body.md
+var heartbeatBody string
+
+// HeartbeatTitle is the title template for the alert task emitted when the
+// zero-events heartbeat stops arriving. It is deliberately not the analyze-task
+// title: this task reports an *absence*, so it links to no Sentry issue and
+// must not read as one.
+var HeartbeatTitle = template.Must(
+	template.New("heartbeat-title").Parse(strings.TrimRight(heartbeatTitle, "\n")),
+)
+
+// HeartbeatBody is the body template for the heartbeat alert task — the
+// cheapest-first triage order, so the reader does not start by assuming
+// ingestion is dead when a stopped emitter explains the same absence.
+var HeartbeatBody = template.Must(
+	template.New("heartbeat-body").Parse(heartbeatBody),
+)

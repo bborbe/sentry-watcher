@@ -6,13 +6,27 @@ package pkg
 
 import (
 	"context"
+	stderrors "errors"
 	"time"
 
+	task "github.com/bborbe/agent/command/task"
 	"github.com/bborbe/errors"
 	libtime "github.com/bborbe/time"
+
+	"github.com/bborbe/sentry-watcher/pkg/tasktemplate"
 )
 
 //counterfeiter:generate -o ../mocks/heartbeat_checker.go --fake-name HeartbeatChecker . HeartbeatChecker
+
+// ErrHeartbeatMissing marks a Verify failure that *is* the finding: no
+// heartbeat newer than MaxAge is visible.
+//
+// Callers that act on the absence — filing an alert, paging someone — must
+// match on this rather than on "Verify returned an error". A query failure also
+// returns an error, and it means the check could not run, which is not evidence
+// that ingestion is dead; alerting on it would cry wolf exactly when the Sentry
+// API is unreachable. The two are deliberately separable.
+var ErrHeartbeatMissing = stderrors.New("heartbeat missing")
 
 // HeartbeatChecker verifies that Sentry is actually retaining events.
 //
@@ -85,8 +99,9 @@ func (c *heartbeatChecker) Verify(ctx context.Context) error {
 		return errors.Wrap(ctx, err, "query heartbeat")
 	}
 	if len(issues) == 0 {
-		return errors.Errorf(
+		return errors.Wrap(
 			ctx,
+			ErrHeartbeatMissing,
 			"no heartbeat event visible in Sentry — ingestion is not retaining events",
 		)
 	}
@@ -100,8 +115,9 @@ func (c *heartbeatChecker) Verify(ctx context.Context) error {
 	if age <= c.cfg.MaxAge {
 		return nil
 	}
-	return errors.Errorf(
+	return errors.Wrapf(
 		ctx,
+		ErrHeartbeatMissing,
 		"newest heartbeat is %s old, past the %s limit — ingestion is not retaining events",
 		age.Truncate(time.Second),
 		c.cfg.MaxAge,
@@ -143,4 +159,37 @@ func newestHeartbeat(ctx context.Context, issues []Issue) (time.Time, error) {
 		)
 	}
 	return newest, nil
+}
+
+// HeartbeatMissingShortID is the synthetic short-id the alert task carries.
+// Deliberately not a Sentry short-id: the alert reports the *absence* of
+// events, so there is no issue for it to link to.
+const HeartbeatMissingShortID = "SENTRY-HEARTBEAT-MISSING"
+
+// BuildHeartbeatAlertCommand assembles the CreateTaskCommand emitted when no
+// heartbeat is visible.
+//
+// date is the UTC calendar date, and it is what makes this safe to run often:
+// the derived task id collapses every failure in a day to one task. A detector
+// stuck on a dead pipeline fails on *every* check, so a per-check id would bury
+// the signal under its own repetition. The title/body templates are the
+// heartbeat pair rather than the analyze pair — this task must not read as a
+// Sentry issue.
+func BuildHeartbeatAlertCommand(
+	ctx context.Context,
+	date string,
+	maxAge time.Duration,
+	cfg TaskConfig,
+) (task.CreateCommand, error) {
+	cfg.TitleTemplate = tasktemplate.HeartbeatTitle
+	cfg.BodyTemplate = tasktemplate.HeartbeatBody
+	return BuildCreateCommand(
+		ctx,
+		Issue{
+			ShortID: HeartbeatMissingShortID,
+			Title:   "no heartbeat within " + maxAge.String(),
+		},
+		date,
+		cfg,
+	)
 }

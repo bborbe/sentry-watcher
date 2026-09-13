@@ -9,6 +9,10 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -mod=vendor -ldflags "-s" -a -in
 # overriding the entrypoint with `command: ["/heartbeat"]`, so the emitter
 # cannot drift from the watcher's tag or search expression.
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -mod=vendor -ldflags "-s" -a -installsuffix cgo -o /heartbeat ./cmd/heartbeat
+# The detector ships in the same image too, so emitter and checker cannot drift
+# apart on the tag or the search expression — a mismatch would report ingestion
+# dead forever, indistinguishable from the real failure.
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -mod=vendor -ldflags "-s" -a -installsuffix cgo -o /check-heartbeat ./cmd/check-heartbeat
 CMD ["/bin/bash"]
 
 FROM ${DOCKER_REGISTRY}/alpine:3.23 AS alpine
@@ -20,6 +24,7 @@ ARG BUILD_GIT_COMMIT=none
 ARG BUILD_DATE=unknown
 COPY --from=build /main /main
 COPY --from=build /heartbeat /heartbeat
+COPY --from=build /check-heartbeat /check-heartbeat
 ENV ZONEINFO=/zoneinfo.zip
 COPY --from=build /usr/local/go/lib/time/zoneinfo.zip /
 ENV BUILD_GIT_COMMIT=${BUILD_GIT_COMMIT}
