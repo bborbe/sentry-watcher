@@ -46,5 +46,8 @@ func TestSuite(t *testing.T) {
 	format.TruncatedDiff = false
 	RegisterFailHandler(Fail)
 	suiteConfig, reporterConfig := GinkgoConfiguration()
+	// Without a suite timeout a hung test holds the runner until the CI-level
+	// timeout — the only backstop, and a slow one. Matches pkg/suite_test.go.
+	suiteConfig.Timeout = 60 * time.Second
 	RunSpecs(t, "Heartbeat Suite", suiteConfig, reporterConfig)
 }
