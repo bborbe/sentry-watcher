@@ -110,6 +110,21 @@ var _ = Describe("pkg.HeartbeatChecker.Verify", func() {
 		Expect(err.Error()).NotTo(ContainSubstring("no heartbeat event visible"))
 	})
 
+	// The scan honours the caller's deadline instead of running to completion:
+	// an unreachable or slow Sentry makes the issue list large, and the caller's
+	// context is authoritative over a bounded in-memory loop.
+	It("stops on a cancelled context rather than completing the scan", func() {
+		cancelled, cancel := context.WithCancel(ctx)
+		cancel()
+		client.UnresolvedIssuesReturns([]pkg.Issue{lastSeenOf(10 * time.Minute)}, nil)
+
+		err := pkg.NewHeartbeatChecker(cfg).Verify(cancelled)
+
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("context canceled"))
+		Expect(err.Error()).NotTo(ContainSubstring("no heartbeat event visible"))
+	})
+
 	// A present-but-unreadable timestamp is its own outcome: the query worked,
 	// but the answer cannot be judged. Reporting it as either "present" or
 	// "absent" would state something the data does not support.

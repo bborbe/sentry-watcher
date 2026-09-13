@@ -119,6 +119,13 @@ func newestHeartbeat(ctx context.Context, issues []Issue) (time.Time, error) {
 	var newest time.Time
 	unparseable := 0
 	for _, issue := range issues {
+		// A cancelled context stops the scan rather than running it out: the
+		// caller's deadline is authoritative even over a bounded in-memory loop.
+		select {
+		case <-ctx.Done():
+			return time.Time{}, errors.Wrap(ctx, ctx.Err(), "iterate heartbeat issues")
+		default:
+		}
 		t, err := time.Parse(time.RFC3339, issue.LastSeen)
 		if err != nil {
 			unparseable++
