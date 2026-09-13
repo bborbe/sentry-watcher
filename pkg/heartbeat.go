@@ -6,8 +6,10 @@ package pkg
 
 import (
 	"context"
+	"time"
 
 	"github.com/bborbe/errors"
+	libtime "github.com/bborbe/time"
 )
 
 //counterfeiter:generate -o ../mocks/heartbeat_checker.go --fake-name HeartbeatChecker . HeartbeatChecker
@@ -17,30 +19,68 @@ import (
 // A quiet fleet and dead ingestion both produce "no new issues", so counting
 // issues cannot tell them apart. The heartbeat resolves that ambiguity: a
 // known workload emits a deliberately-tagged error event on a schedule, and
-// this checker asserts one is visible. Absence is unambiguous — there is no
-// "legitimately quiet" reading of a missing heartbeat.
+// this checker asserts a *recent* one is visible. Absence is unambiguous —
+// there is no "legitimately quiet" reading of a missing heartbeat.
+//
+// The age bound is not optional. The org-issues endpoint applies no time
+// window of its own — fetchPage sends only query/limit/cursor — so a bare tag
+// query matches a heartbeat from any point in the past: the first event ever
+// sent would satisfy it forever, and the detector would stay silent through
+// exactly the ingestion blackout it exists to catch. The bound is therefore
+// enforced here, against the issue's own lastSeen, rather than in the search
+// expression — no Sentry search-syntax assumption is load-bearing. (The
+// sibling statsPeriod approach was already disproven on this endpoint: it is
+// an event-recency filter, not a stats window.)
 //
 // The client is expected to be configured with the heartbeat query
-// (SentryConfig.Query, e.g. "sentry-heartbeat"), so UnresolvedIssues returns
-// heartbeat events rather than the fleet's real alerts.
+// (SentryConfig.Query, e.g. "source:sentry-heartbeat"), so UnresolvedIssues
+// returns heartbeat events rather than the fleet's real alerts.
 type HeartbeatChecker interface {
-	// Verify returns nil when a heartbeat event is visible in Sentry. A
-	// non-nil error means none was found — ingestion is not retaining events,
-	// or the heartbeat emitter has stopped.
+	// Verify returns nil when a heartbeat event newer than MaxAge is visible.
+	// A non-nil error means none is — ingestion is not retaining events, or
+	// the heartbeat emitter has stopped.
 	Verify(ctx context.Context) error
 }
 
-// NewHeartbeatChecker returns a HeartbeatChecker backed by the given client.
-func NewHeartbeatChecker(client SentryClient) HeartbeatChecker {
-	return &heartbeatChecker{client: client}
+// DefaultHeartbeatMaxAge is how old the newest heartbeat may be when
+// HEARTBEAT_MAX_AGE is unset: N = 6h, the window this detector is specified at.
+// Applied in the binaries rather than only via the arg's `default:` tag, so a
+// caller that constructs the config directly (a test, a future entrypoint)
+// gets the same window instead of a zero bound that reports ingestion dead on
+// every cycle.
+const DefaultHeartbeatMaxAge = 6 * time.Hour
+
+// HeartbeatCheckerConfig groups the checker's connection and staleness settings.
+type HeartbeatCheckerConfig struct {
+	// Client is the org-issues client, configured with the heartbeat query
+	// (SentryConfig.Query). Required.
+	Client SentryClient
+
+	// MaxAge is how old the newest heartbeat may be and still count as present.
+	// Expected > 0: a zero bound reports ingestion dead on every cycle, so callers
+	// must supply a real window (the deployment default is 6h, matching the N the
+	// detector is specified at).
+	MaxAge time.Duration
+
+	// CurrentDateTimeGetter supplies "now" (go-time/no-time-now-direct);
+	// nil → libtime.NewCurrentDateTime().
+	CurrentDateTimeGetter libtime.CurrentDateTimeGetter
+}
+
+// NewHeartbeatChecker returns a HeartbeatChecker for the given config.
+func NewHeartbeatChecker(cfg HeartbeatCheckerConfig) HeartbeatChecker {
+	if cfg.CurrentDateTimeGetter == nil {
+		cfg.CurrentDateTimeGetter = libtime.NewCurrentDateTime()
+	}
+	return &heartbeatChecker{cfg: cfg}
 }
 
 type heartbeatChecker struct {
-	client SentryClient
+	cfg HeartbeatCheckerConfig
 }
 
 func (c *heartbeatChecker) Verify(ctx context.Context) error {
-	issues, err := c.client.UnresolvedIssues(ctx)
+	issues, err := c.cfg.Client.UnresolvedIssues(ctx)
 	if err != nil {
 		return errors.Wrap(ctx, err, "query heartbeat")
 	}
@@ -50,5 +90,57 @@ func (c *heartbeatChecker) Verify(ctx context.Context) error {
 			"no heartbeat event visible in Sentry — ingestion is not retaining events",
 		)
 	}
-	return nil
+
+	newest, err := newestHeartbeat(ctx, issues)
+	if err != nil {
+		return err
+	}
+
+	age := c.cfg.CurrentDateTimeGetter.Now().Time().Sub(newest)
+	if age <= c.cfg.MaxAge {
+		return nil
+	}
+	return errors.Errorf(
+		ctx,
+		"newest heartbeat is %s old, past the %s limit — ingestion is not retaining events",
+		age.Truncate(time.Second),
+		c.cfg.MaxAge,
+	)
+}
+
+// newestHeartbeat returns the most recent lastSeen across the returned issues.
+//
+// An issue whose lastSeen cannot be parsed is skipped rather than counted as
+// fresh — a malformed timestamp is not evidence that anything arrived. If none
+// parse, the check cannot be evaluated at all, and says so: that outcome is
+// deliberately reported as neither "heartbeat present" nor "heartbeat absent",
+// because the query succeeded but its answer is unusable.
+func newestHeartbeat(ctx context.Context, issues []Issue) (time.Time, error) {
+	var newest time.Time
+	unparseable := 0
+	for _, issue := range issues {
+		// A cancelled context stops the scan rather than running it out: the
+		// caller's deadline is authoritative even over a bounded in-memory loop.
+		select {
+		case <-ctx.Done():
+			return time.Time{}, errors.Wrap(ctx, ctx.Err(), "iterate heartbeat issues")
+		default:
+		}
+		t, err := time.Parse(time.RFC3339, issue.LastSeen)
+		if err != nil {
+			unparseable++
+			continue
+		}
+		if t.After(newest) {
+			newest = t
+		}
+	}
+	if newest.IsZero() {
+		return time.Time{}, errors.Errorf(
+			ctx,
+			"%d heartbeat event(s) visible but none carry a parseable lastSeen — cannot evaluate staleness",
+			unparseable,
+		)
+	}
+	return newest, nil
 }
