@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- feat: `SENTRY_QUERY` (config `SentryConfig.Query`) overrides the org-issues search expression; empty keeps the existing `is:unresolved`. The query was hardcoded in `fetchPage`, so no caller could search for anything else — a zero-events detector needs a tag search to assert a heartbeat event arrived, which an unresolved-issue count cannot express
 - chore: add `goUpdate.autoUpdate` to `.maintainer.yaml` so github-update-go-agent keeps the repo in the fleet sweep — the key was absent and read as `false`, silently excluding it
 - fix: bump errcheck to v1.20.0 for Go 1.27 compatibility
 - fix: `make build` refuses to stamp a version onto a tree that is not that version's tag (`check-version-tag`, escape hatch `ALLOW_UNTAGGED_BUILD=1`). `VERSION` defaults to the newest tag repo-wide, so an operator-run build from an untagged or older tree silently republishes under the newest tag. The guard compares `git describe --exact-match HEAD` against `$(VERSION)` and exits non-zero on mismatch.
