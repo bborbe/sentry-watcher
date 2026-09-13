@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.3.0
 
 - feat: `cmd/check-heartbeat` — the detector half of the zero-events check, as its own one-shot binary. It reads Sentry for the heartbeat and, when none is visible, files exactly one vault task per UTC day and exits non-zero, so the signal reaches a human *and* the failed run reaches the cluster. It is deliberately **not** the poller: the poller's emit path is superseded by the Kafka-native `sentry-alert-consumer`, and running it would file a second copy of every `Analyze-Sentry-issue` task — different dedup key, different assignee, so the controller's `(issue-key, date)` dedup could not collapse them. This binary has no analysis path, so there is nothing to double-file
 - feat: `pkg.ErrHeartbeatMissing` separates "no heartbeat is visible" from "the check could not run". Both return an error from `Verify`, and a caller that files an alert on the *absence* must branch on the sentinel — otherwise it cries wolf exactly when the Sentry API is unreachable, which is the failure mode this task family keeps rediscovering. Both absence paths wrap it; the query-failure and unparseable-`lastSeen` paths deliberately do not
