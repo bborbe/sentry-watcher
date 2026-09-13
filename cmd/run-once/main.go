@@ -94,8 +94,7 @@ type WatcherFunc func(
 	projectAllowlist []string,
 	seedDate string,
 	sentryCfg pkg.SentryConfig,
-	heartbeatQuery string,
-	heartbeatMaxAge time.Duration,
+	heartbeat pkg.HeartbeatChecker,
 ) pkg.Watcher
 
 // SyncProducerFunc creates a Kafka sync producer. Matches
@@ -145,6 +144,21 @@ func (a *Application) Run(ctx context.Context, _ libsentry.Client) error {
 	httpClient := &http.Client{Timeout: httpClientTimeout}
 	metrics := pkg.NewMetrics(prometheus.NewRegistry())
 	sender := factory.CreateKafkaSender(syncProducer, a.TopicPrefix, a.TargetVault)
+	sentryCfg := pkg.SentryConfig{
+		URL:      a.SentryURL,
+		Org:      a.SentryOrg,
+		APIToken: a.SentryAPIToken,
+		Query:    a.SentryQuery,
+	}
+
+	// Boot-time decision, so it lives here and not in the factory.
+	var heartbeat pkg.HeartbeatChecker
+	if a.HeartbeatQuery != "" {
+		heartbeat = factory.CreateHeartbeatChecker(
+			httpClient, sentryCfg, a.HeartbeatQuery, heartbeatMaxAge,
+		)
+	}
+
 	w := a.CreateWatcher(
 		httpClient,
 		sender,
@@ -158,14 +172,8 @@ func (a *Application) Run(ctx context.Context, _ libsentry.Client) error {
 		},
 		projects,
 		a.SeedDate,
-		pkg.SentryConfig{
-			URL:      a.SentryURL,
-			Org:      a.SentryOrg,
-			APIToken: a.SentryAPIToken,
-			Query:    a.SentryQuery,
-		},
-		a.HeartbeatQuery,
-		heartbeatMaxAge,
+		sentryCfg,
+		heartbeat,
 	)
 
 	if err := w.Poll(ctx); err != nil {

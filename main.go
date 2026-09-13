@@ -98,30 +98,36 @@ func (a *application) validateFlags(ctx context.Context) error {
 	return nil
 }
 
-// heartbeatMaxAge resolves the heartbeat staleness bound, falling back to
-// DefaultHeartbeatMaxAge when unset.
+// heartbeatChecker builds the zero-events checker, or returns nil when the
+// check is disabled.
 //
-// The default is applied here and not only via the arg's `default:` tag, so a
-// direct construction of this struct cannot end up with a zero bound — which
-// would report ingestion dead on every cycle.
-func (a *application) heartbeatMaxAge(ctx context.Context) (time.Duration, error) {
-	if a.HeartbeatMaxAge == "" {
-		return pkg.DefaultHeartbeatMaxAge, nil
+// Both the staleness bound and the enable/disable decision are boot-time
+// configuration, so they resolve here in main rather than inside the factory
+// (go-factory/no-conditional-in-body). The default bound is applied here too,
+// and not only via the arg's `default:` tag, so a direct construction of this
+// struct cannot yield a zero bound — which would report ingestion dead on every
+// cycle.
+func (a *application) heartbeatChecker(
+	ctx context.Context,
+	httpClient *http.Client,
+	sentryCfg pkg.SentryConfig,
+) (pkg.HeartbeatChecker, error) {
+	maxAge := pkg.DefaultHeartbeatMaxAge
+	if a.HeartbeatMaxAge != "" {
+		parsed, err := time.ParseDuration(a.HeartbeatMaxAge)
+		if err != nil {
+			return nil, errors.Wrapf(ctx, err, "parse heartbeat max age %q", a.HeartbeatMaxAge)
+		}
+		maxAge = parsed
 	}
-	parsed, err := time.ParseDuration(a.HeartbeatMaxAge)
-	if err != nil {
-		return 0, errors.Wrapf(ctx, err, "parse heartbeat max age %q", a.HeartbeatMaxAge)
+	if a.HeartbeatQuery == "" {
+		return nil, nil
 	}
-	return parsed, nil
+	return factory.CreateHeartbeatChecker(httpClient, sentryCfg, a.HeartbeatQuery, maxAge), nil
 }
 
 func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 	if err := a.validateFlags(ctx); err != nil {
-		return err
-	}
-
-	heartbeatMaxAge, err := a.heartbeatMaxAge(ctx)
-	if err != nil {
 		return err
 	}
 
@@ -152,6 +158,18 @@ func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 	httpClient := &http.Client{Timeout: httpClientTimeout}
 	metrics := pkg.NewMetrics(nil)
 	sender := factory.CreateKafkaSender(syncProducer, a.TopicPrefix, a.TargetVault)
+	sentryCfg := pkg.SentryConfig{
+		URL:      a.SentryURL,
+		Org:      a.SentryOrg,
+		APIToken: a.SentryAPIToken,
+		Query:    a.SentryQuery,
+	}
+
+	heartbeat, err := a.heartbeatChecker(ctx, httpClient, sentryCfg)
+	if err != nil {
+		return err
+	}
+
 	w := factory.CreateWatcher(
 		httpClient,
 		sender,
@@ -168,14 +186,8 @@ func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 		},
 		projects,
 		a.SeedDate,
-		pkg.SentryConfig{
-			URL:      a.SentryURL,
-			Org:      a.SentryOrg,
-			APIToken: a.SentryAPIToken,
-			Query:    a.SentryQuery,
-		},
-		a.HeartbeatQuery,
-		heartbeatMaxAge,
+		sentryCfg,
+		heartbeat,
 	)
 
 	glog.V(2).Infof(

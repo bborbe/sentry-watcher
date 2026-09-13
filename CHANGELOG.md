@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- refactor: move the heartbeat enable/disable decision out of `factory.CreateWatcher` and into the binaries' boot path, behind a new conditional-free `factory.CreateHeartbeatChecker`. `CreateWatcher` now receives a ready-built checker (or `nil`), which clears a `go-factory/no-conditional-in-body` MUST violation: a conditional in a factory means the factory is making a decision, and decisions belong at boot time or behind a provider — not in the wiring tree
 - fix: bound the heartbeat check by age, so the zero-events detector can actually fire. The org-issues endpoint applies no time window of its own — `fetchPage` sends only `query`/`limit`/`cursor` — so `HEARTBEAT_QUERY=sentry-heartbeat` matched a heartbeat from *any* point in the past: the first event ever sent satisfied the check forever, and the detector stayed silent through a repeat of the 2026-09-06 blackout it exists to catch. `HeartbeatChecker` now requires a heartbeat newer than `HEARTBEAT_MAX_AGE` (default `6h`, the N the detector is specified at) and reports a stale-only result as `newest heartbeat is … past the … limit`. The bound is enforced in Go against each issue's own `lastSeen`, not in the search expression, so no Sentry search-syntax assumption is load-bearing — the sibling `statsPeriod` mechanism was already disproven on this endpoint. A present-but-unparseable `lastSeen` reports its own outcome, deliberately neither present nor absent
 
 ## v0.2.0
