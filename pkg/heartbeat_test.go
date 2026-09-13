@@ -137,4 +137,42 @@ var _ = Describe("pkg.HeartbeatChecker.Verify", func() {
 		Expect(err.Error()).To(ContainSubstring("cannot evaluate staleness"))
 		Expect(err.Error()).NotTo(ContainSubstring("no heartbeat event visible"))
 	})
+
+	// The sentinel contract callers branch on. pkg.ErrHeartbeatMissing has to
+	// survive the wrap, or a caller that files an alert only on the *finding*
+	// would silently stop filing anything.
+	It("marks an absent heartbeat with ErrHeartbeatMissing", func() {
+		client.UnresolvedIssuesReturns(nil, nil)
+
+		err := pkg.NewHeartbeatChecker(cfg).Verify(ctx)
+
+		Expect(stderrors.Is(err, pkg.ErrHeartbeatMissing)).To(BeTrue())
+	})
+
+	It("marks a stale heartbeat with ErrHeartbeatMissing", func() {
+		client.UnresolvedIssuesReturns([]pkg.Issue{lastSeenOf(7 * time.Hour)}, nil)
+
+		err := pkg.NewHeartbeatChecker(cfg).Verify(ctx)
+
+		Expect(stderrors.Is(err, pkg.ErrHeartbeatMissing)).To(BeTrue())
+	})
+
+	// The counter-case, and the whole reason the sentinel exists: a query
+	// failure must NOT be mistaken for the finding, or the detector cries wolf
+	// whenever the Sentry API is unreachable.
+	It("does not mark a query failure with ErrHeartbeatMissing", func() {
+		client.UnresolvedIssuesReturns(nil, stderrors.New("boom"))
+
+		err := pkg.NewHeartbeatChecker(cfg).Verify(ctx)
+
+		Expect(stderrors.Is(err, pkg.ErrHeartbeatMissing)).To(BeFalse())
+	})
+
+	It("does not mark an unparseable lastSeen with ErrHeartbeatMissing", func() {
+		client.UnresolvedIssuesReturns([]pkg.Issue{{ShortID: "SENTRY-HEARTBEAT"}}, nil)
+
+		err := pkg.NewHeartbeatChecker(cfg).Verify(ctx)
+
+		Expect(stderrors.Is(err, pkg.ErrHeartbeatMissing)).To(BeFalse())
+	})
 })
