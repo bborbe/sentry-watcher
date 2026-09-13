@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.2.0
 
 - feat: `cmd/heartbeat` emits the synthetic event the checker asserts on — the emitter half of the zero-events detector. It posts an `application/x-sentry-envelope` payload through `SENTRY_PROXY` when set, so the heartbeat traverses the same path as real fleet events; a heartbeat that bypassed the proxy would prove nothing about the path that broke in the 2026-09-06 blackout. The event is `level: "error"`, not a message: the checker reads the org-issues endpoint, which lists error groups only, so a message-level event would never appear and the detector would report ingestion dead forever. `HeartbeatTag` and `HeartbeatSearchExpression` are shared constants so emitter and checker cannot drift. The image now builds `/heartbeat` alongside `/main` for a CronJob to run via entrypoint override
 - feat: the heartbeat check runs at the top of every poll cycle and records `poll_cycle_total{result="heartbeat_missing"}` when no heartbeat event is visible — the zero-events signal, distinct from `sentry_error` because the check itself succeeded. Enabled by `HEARTBEAT_QUERY` (empty = disabled, so a deployment without an emitter does not report ingestion dead every cycle). The check never aborts the poll: a missing heartbeat is a signal to record, not a reason to skip a cycle that may also be carrying a real alert
