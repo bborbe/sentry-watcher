@@ -13,7 +13,10 @@ import (
 
 	"github.com/IBM/sarama"
 	saramamocks "github.com/IBM/sarama/mocks"
+	"github.com/bborbe/errors"
 	libkafka "github.com/bborbe/kafka"
+	libsentry "github.com/bborbe/sentry"
+	"github.com/bborbe/service"
 	libtime "github.com/bborbe/time"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -116,6 +119,37 @@ var _ = Describe("Run", func() {
 		Expect(alerts).To(Equal(0))
 	})
 })
+
+// The expected alarm must not reach Sentry. It is already delivered twice — the
+// vault task for a human, the failed run for the cluster — and reporting it a
+// third time spends the org's ingest quota on a known condition, through the
+// same proxy this check exists to watch.
+var _ = Describe("ExcludeHeartbeatMissing", func() {
+	It("excludes the heartbeat-missing error the run returns", func() {
+		options := service.NewOptions(check.ExcludeHeartbeatMissing)
+		err := errors.Wrap(context.Background(), pkg.ErrHeartbeatMissing, "heartbeat missing")
+
+		Expect(excluded(options.ExcludeErrors, err)).To(BeTrue())
+	})
+
+	// A check that could not run is the one failure nobody else carries, so it
+	// has to stay reportable.
+	It("keeps unrelated errors reportable", func() {
+		options := service.NewOptions(check.ExcludeHeartbeatMissing)
+
+		Expect(excluded(options.ExcludeErrors, stderrors.New("sentry unreachable"))).To(BeFalse())
+	})
+})
+
+// excluded reports whether any exclusion predicate claims err.
+func excluded(exclusions libsentry.ExcludeErrors, err error) bool {
+	for _, exclude := range exclusions {
+		if exclude(err) {
+			return true
+		}
+	}
+	return false
+}
 
 var _ = Describe("Main", func() {
 	It("Compiles", func() {

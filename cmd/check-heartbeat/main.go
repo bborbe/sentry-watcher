@@ -41,7 +41,31 @@ const httpClientTimeout = 30 * time.Second
 
 func main() {
 	app := NewApplication()
-	os.Exit(service.Main(context.Background(), app, &app.SentryDSN, &app.SentryProxy))
+	os.Exit(service.Main(
+		context.Background(),
+		app,
+		&app.SentryDSN,
+		&app.SentryProxy,
+		ExcludeHeartbeatMissing,
+	))
+}
+
+// ExcludeHeartbeatMissing keeps the expected alarm out of Sentry.
+//
+// The heartbeat-missing error is the detector *working*: it is delivered to a
+// human by the vault task and to the cluster by the failed run. Reporting it a
+// third time spends the org's ingest quota on a condition that is already known
+// — through the same proxy this check exists to watch — and files an error event
+// the analyzer pipeline can pick up as noise. Unexpected failures ("the check
+// could not run") are deliberately still reported: nobody else carries those.
+//
+// The DSN stays required. Dropping it from the deployment instead would fail
+// argument validation and the watchdog would stop watching silently — the exact
+// failure this binary exists to catch.
+func ExcludeHeartbeatMissing(options *service.Options) {
+	options.ExcludeErrors = append(options.ExcludeErrors, func(err error) bool {
+		return stderrors.Is(err, pkg.ErrHeartbeatMissing)
+	})
 }
 
 // NewApplication creates an Application with its real dependencies.

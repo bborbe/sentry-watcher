@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- fix: `cmd/check-heartbeat` no longer reports its own heartbeat-missing error to Sentry. That error is the detector *working*, and it is already delivered twice — the vault task for a human, the failed run for the cluster — so reporting it a third time spent the org's ingest quota on a known condition through the same proxy the check exists to watch, and filed an error event the analyzer pipeline could pick up as noise. `service.Options.ExcludeErrors` carries the exclusion, so unexpected failures ("the check could not run") are still reported. The DSN stays **required**: dropping it from the deployment instead would fail argument validation and the watchdog would stop watching silently
+
 ## v0.3.0
 
 - feat: `cmd/check-heartbeat` — the detector half of the zero-events check, as its own one-shot binary. It reads Sentry for the heartbeat and, when none is visible, files exactly one vault task per UTC day and exits non-zero, so the signal reaches a human *and* the failed run reaches the cluster. It is deliberately **not** the poller: the poller's emit path is superseded by the Kafka-native `sentry-alert-consumer`, and running it would file a second copy of every `Analyze-Sentry-issue` task — different dedup key, different assignee, so the controller's `(issue-key, date)` dedup could not collapse them. This binary has no analysis path, so there is nothing to double-file
