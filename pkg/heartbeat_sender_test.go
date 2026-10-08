@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -76,6 +77,31 @@ var _ = Describe("pkg.HeartbeatSender.Send", func() {
 		// never appear there.
 		Expect(got.body).To(ContainSubstring(`"level":"error"`))
 		Expect(got.body).To(ContainSubstring(dsn))
+	})
+
+	// The grammar is `Item = Headers "\n" Payload`: an item is its own header
+	// line, then the payload. The builder used to emit the event object as the
+	// second line, so Sentry parsed it as the item header and found no payload —
+	// the envelope was accepted with a 200 and nothing was ever retained, which
+	// is how the heartbeat stayed invisible for the whole outage it exists to
+	// detect while every emitter run reported success. Asserting the *shape* is
+	// what catches that: the ContainSubstring checks above pass on both the
+	// two-line and the three-line body.
+	It("emits the item header and the payload as separate lines", func() {
+		sender := pkg.NewHeartbeatSender(pkg.HeartbeatSenderConfig{
+			DSN:        dsn,
+			ProxyURL:   server.URL,
+			HTTPClient: server.Client(),
+		})
+
+		Expect(sender.Send(ctx)).To(Succeed())
+
+		lines := strings.Split(strings.TrimSuffix(got.body, "\n"), "\n")
+		Expect(lines).To(HaveLen(3))
+		Expect(lines[0]).To(ContainSubstring(`"dsn"`))
+		Expect(lines[1]).To(MatchRegexp(`^\{"type":"event","length":\d+\}$`))
+		Expect(lines[2]).To(ContainSubstring(`"level":"error"`))
+		Expect(lines[2]).To(ContainSubstring(`"source":"` + pkg.HeartbeatTag + `"`))
 	})
 
 	It("returns an error on a non-2xx response", func() {

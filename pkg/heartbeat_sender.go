@@ -127,28 +127,43 @@ func ingestEndpoint(ctx context.Context, cfg HeartbeatSenderConfig) (string, err
 	return fmt.Sprintf("%s://%s/api/%s/envelope/", parsed.Scheme, parsed.Host, projectID), nil
 }
 
-// heartbeatEnvelope builds the two-line envelope the ingest endpoint expects:
-// a header line carrying the DSN, then the event item.
+// heartbeatEnvelope builds the three-line envelope the ingest endpoint expects.
+//
+// The grammar is `Item = Headers "\n" Payload` — an item is its own header line
+// followed by the payload. This builder previously emitted the envelope header
+// and then the event object as a *second* line, so Sentry parsed the event as
+// the item header and found no payload: the envelope was accepted with a 200 and
+// nothing was ever retained. Every emitter run still reported success, because
+// Send inspects only the HTTP status, and the heartbeat stayed invisible for the
+// whole outage it was built to detect. Keep the three lines distinct.
 func heartbeatEnvelope(ctx context.Context, dsn string, now string) ([]byte, string, error) {
-	eventID, err := newEventID()
+	eventID, err := newEventID(ctx)
 	if err != nil {
 		return nil, "", errors.Wrap(ctx, err, "generate event id")
 	}
 	header := fmt.Sprintf(`{"event_id":%q,"sent_at":%q,"dsn":%q}`, eventID, now, dsn)
 	// level=error so the event surfaces as an issue — the checker reads the
 	// org-issues endpoint, which lists error groups only.
-	item := fmt.Sprintf(
-		`{"type":"event","event_id":%q,"timestamp":%q,"level":"error","logger":%q,`+
-			`"message":"%s","tags":{"source":%q}}`,
+	payload := fmt.Sprintf(
+		`{"event_id":%q,"timestamp":%q,"level":"error","logger":%q,`+
+			`"message":%q,"tags":{"source":%q}}`,
 		eventID, now, HeartbeatTag, HeartbeatTag, HeartbeatTag,
 	)
-	return []byte(header + "\n" + item), eventID, nil
+	// length is the payload's byte count, which is what lets the parser find the
+	// payload's end without relying on EOF to terminate it.
+	itemHeader := fmt.Sprintf(`{"type":"event","length":%d}`, len(payload))
+	return []byte(header + "\n" + itemHeader + "\n" + payload + "\n"), eventID, nil
 }
 
-func newEventID() (string, error) {
+// newEventID returns a fresh hex event id for one heartbeat envelope.
+//
+// It takes the caller's context so a failure to read randomness is wrapped with
+// it rather than returned bare — the repo's error convention, and the one this
+// helper was the last exception to.
+func newEventID(ctx context.Context) (string, error) {
 	buf := make([]byte, 16)
 	if _, err := rand.Read(buf); err != nil {
-		return "", err
+		return "", errors.Wrap(ctx, err, "read random bytes")
 	}
 	return hex.EncodeToString(buf), nil
 }
