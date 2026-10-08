@@ -6,6 +6,7 @@ package pkg_test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -100,6 +101,12 @@ var _ = Describe("pkg.HeartbeatSender.Send", func() {
 		Expect(lines).To(HaveLen(3))
 		Expect(lines[0]).To(ContainSubstring(`"dsn"`))
 		Expect(lines[1]).To(MatchRegexp(`^\{"type":"event","length":\d+\}$`))
+		// length must equal the payload's byte count, not merely be a number. A
+		// correct-looking but numerically wrong length — an off-by-one, or the
+		// header's own length — is rejected by Sentry exactly as the two-line body
+		// was, so asserting only `\d+` would leave the one field this fix exists to
+		// pin unprotected.
+		Expect(lines[1]).To(Equal(fmt.Sprintf(`{"type":"event","length":%d}`, len(lines[2]))))
 		Expect(lines[2]).To(ContainSubstring(`"level":"error"`))
 		Expect(lines[2]).To(ContainSubstring(`"source":"` + pkg.HeartbeatTag + `"`))
 	})
