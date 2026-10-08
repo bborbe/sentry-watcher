@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.3.3
 
 - chore: enable `release.autoRelease`, so the releaser cuts the tag on merge instead of a human doing it by hand. The manual step cost a real delay: the heartbeat-envelope fix (PR #20) merged and then sat under `## Unreleased` until someone renamed the heading and tagged by hand. The deploy is unaffected — the CronJobs running this image pin `WATCHER_TAG` explicitly in `bborbe/nuke`
 
