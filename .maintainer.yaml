@@ -1,9 +1,20 @@
 # maintainer-bot per-repo config (ben-s-pull-request-reviewer[bot]).
-# No release.autoRelease — sentry-watcher is a k8s watcher deployed via the
-# maintainer Helm chart (mirror + keel), so the release is manual (tag + make
-# buca), not bot-tagged.
+#
+# autoRelease ENABLED 2026-10-08. The comment that stood here said the release
+# was manual because sentry-watcher is deployed via the maintainer Helm chart
+# (mirror + keel) — but mirror+keel *consumes* tags, so that argued for
+# auto-tagging rather than against it. What the manual step actually cost: the
+# heartbeat-envelope fix (PR #20) merged and then sat under `## Unreleased`
+# until someone renamed the heading and tagged by hand. Nothing else was
+# missing — the releaser App already holds bypass_mode: always on this repo's
+# master-protection ruleset (Integration 3907226, the same actor set as
+# bborbe/nuke and bborbe/coding, both of which auto-release). The deploy stays
+# manual: the CronJobs pin WATCHER_TAG explicitly, so a tag alone ships nothing.
 prReviewer:
   autoApprove: true
+
+release:
+  autoRelease: true
 
 # Consent for github-update-go-agent. The key must be present and explicitly
 # true: the gate reads a missing key as Go's zero value (false), which silently
