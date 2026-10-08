@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.3.2
 
 - fix: the heartbeat emitter now writes a conforming envelope. `heartbeatEnvelope` emitted the envelope header and then the event object as a *second* line, but the grammar is `Item = Headers "\n" Payload` — an item is its own header line followed by the payload. Sentry therefore parsed the event as the item header and found no payload, accepted the envelope with a `200`, and retained nothing. The emitter could not see it: `Send` inspects only the HTTP status and discards the response body. So the heartbeat was invisible for the whole outage it exists to detect — `source:sentry-heartbeat` matched no event in 90 days while every emitter run reported `Complete`, and the zero-events detector read that absence as ingestion being dead. The builder now emits three lines (envelope header, `{"type":"event","length":N}`, event payload), and a test asserts the *shape* — the existing `ContainSubstring` assertions pass on both the two-line and the three-line body, which is why this shipped
 - fix: `newEventID` wraps its failure with the caller's context instead of returning the error bare, and takes that context as its first argument. Adjacent to the envelope fix rather than part of it, in the same function's call path
