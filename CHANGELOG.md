@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-- chore: enable `release.autoRelease` in `.maintainer.yaml`, so the releaser cuts the tag on merge instead of a human doing it by hand. The manual tag is the step with no judgement in it and the one that decays: the heartbeat-envelope fix (PR #20) merged and then sat under `## Unreleased` until someone renamed the heading and tagged by hand. The releaser App already held `bypass_mode: always` on this repo's `master-protection` ruleset (Integration `3907226`, the same actor set as `bborbe/nuke` and `bborbe/coding`), so nothing but this key was missing. The deploy stays manual — the CronJobs pin `WATCHER_TAG` explicitly, so a tag alone ships nothing. This section is also the releaser's input, which is why it exists: without an `## Unreleased` heading there is nothing to classify a bump from
+- chore: enable `release.autoRelease`, so the releaser cuts the tag on merge instead of a human doing it by hand. The manual step cost a real delay: the heartbeat-envelope fix (PR #20) merged and then sat under `## Unreleased` until someone renamed the heading and tagged by hand. The deploy is unaffected — the CronJobs running this image pin `WATCHER_TAG` explicitly in `bborbe/nuke`
 
 ## v0.3.2
 

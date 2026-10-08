@@ -1,15 +1,18 @@
 # maintainer-bot per-repo config (ben-s-pull-request-reviewer[bot]).
 #
 # autoRelease ENABLED 2026-10-08. The comment that stood here said the release
-# was manual because sentry-watcher is deployed via the maintainer Helm chart
-# (mirror + keel) — but mirror+keel *consumes* tags, so that argued for
-# auto-tagging rather than against it. What the manual step actually cost: the
-# heartbeat-envelope fix (PR #20) merged and then sat under `## Unreleased`
-# until someone renamed the heading and tagged by hand. Nothing else was
-# missing — the releaser App already holds bypass_mode: always on this repo's
-# master-protection ruleset (Integration 3907226, the same actor set as
-# bborbe/nuke and bborbe/coding, both of which auto-release). The deploy stays
-# manual: the CronJobs pin WATCHER_TAG explicitly, so a tag alone ships nothing.
+# was manual because sentry-watcher deploys via the maintainer Helm chart — but
+# that chart's mirror *consumes* tags, so it argued for auto-tagging rather than
+# against it. The manual step cost a real delay: the heartbeat-envelope fix
+# (PR #20) merged and then sat under `## Unreleased` until someone renamed the
+# heading and tagged by hand.
+#
+# Two facts the automation rests on, neither checkable from this repo — recorded
+# so they are not re-derived: the releaser App holds bypass_mode: always on this
+# repo's master-protection ruleset (verified via the GitHub rulesets API on
+# 2026-10-08; same actor set as bborbe/nuke and bborbe/coding), and the deploy is
+# unaffected because the CronJobs that run this image pin WATCHER_TAG explicitly
+# in bborbe/nuke's sentry-heartbeat/ manifests.
 prReviewer:
   autoApprove: true
 
