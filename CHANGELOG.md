@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- chore: enable `release.autoRelease` in `.maintainer.yaml`, so the releaser cuts the tag on merge instead of a human doing it by hand. The manual tag is the step with no judgement in it and the one that decays: the heartbeat-envelope fix (PR #20) merged and then sat under `## Unreleased` until someone renamed the heading and tagged by hand. The releaser App already held `bypass_mode: always` on this repo's `master-protection` ruleset (Integration `3907226`, the same actor set as `bborbe/nuke` and `bborbe/coding`), so nothing but this key was missing. The deploy stays manual — the CronJobs pin `WATCHER_TAG` explicitly, so a tag alone ships nothing. This section is also the releaser's input, which is why it exists: without an `## Unreleased` heading there is nothing to classify a bump from
+
 ## v0.3.2
 
 - fix: the heartbeat emitter now writes a conforming envelope. `heartbeatEnvelope` emitted the envelope header and then the event object as a *second* line, but the grammar is `Item = Headers "\n" Payload` — an item is its own header line followed by the payload. Sentry therefore parsed the event as the item header and found no payload, accepted the envelope with a `200`, and retained nothing. The emitter could not see it: `Send` inspects only the HTTP status and discards the response body. So the heartbeat was invisible for the whole outage it exists to detect — `source:sentry-heartbeat` matched no event in 90 days while every emitter run reported `Complete`, and the zero-events detector read that absence as ingestion being dead. The builder now emits three lines (envelope header, `{"type":"event","length":N}`, event payload), and a test asserts the *shape* — the existing `ContainSubstring` assertions pass on both the two-line and the three-line body, which is why this shipped
