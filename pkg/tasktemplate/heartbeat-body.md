@@ -1,13 +1,12 @@
-# Sentry has stopped retaining events - {{.Date}}
+# Sentry heartbeat missing - {{.Date}}
 
 The zero-events heartbeat did not arrive within its staleness window ({{.Title}}).
 
 A quiet fleet and dead ingestion both produce "no new issues", so no issue count
 can tell them apart. The heartbeat is the positive assertion that separates
-them — and it is missing. The likeliest cause is that Sentry is not retaining
-events: an over-quota org returns HTTP 200 and keeps nothing, so ingestion
-failure is invisible at the client and stays invisible until someone notices the
-silence.
+them — and it is missing. What stopped it is not established by this check: a
+stopped emitter, a dead proxy and an over-quota org all produce this same
+absence, so work the candidates below in order rather than assuming the cause.
 
 Check, cheapest first:
 
@@ -20,7 +19,7 @@ Check, cheapest first:
    nothing is retained.
 
 Do not resolve this by lowering the heartbeat interval or the staleness window —
-that narrows the signal without restoring ingestion.
+that narrows the signal without restoring the heartbeat.
 
-Emitted once per UTC day: the detector fails on every check while ingestion is
-down, and one task per check would bury the signal in its own repetition.
+Emitted once per UTC day: the detector fails on every check while the heartbeat
+is absent, and one task per check would bury the signal in its own repetition.

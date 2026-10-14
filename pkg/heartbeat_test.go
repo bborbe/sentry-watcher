@@ -72,7 +72,7 @@ var _ = Describe("pkg.HeartbeatChecker.Verify", func() {
 
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("past the 6h0m0s limit"))
-		Expect(err.Error()).To(ContainSubstring("ingestion is not retaining events"))
+		Expect(err.Error()).NotTo(ContainSubstring("retaining"))
 	})
 
 	// Several heartbeats accumulate over time; only the newest decides. An old
