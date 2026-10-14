@@ -34,23 +34,14 @@ var DefaultTitle = template.Must(
 // override is configured.
 var DefaultBody = template.Must(template.New("body").Parse(defaultBody))
 
-//go:embed heartbeat-title.md
-var heartbeatTitle string
-
-//go:embed heartbeat-body.md
-var heartbeatBody string
-
-// HeartbeatTitle is the title template for the alert task emitted when the
-// zero-events heartbeat stops arriving. It is deliberately not the analyze-task
-// title: this task reports an *absence*, so it links to no Sentry issue and
-// must not read as one.
-var HeartbeatTitle = template.Must(
-	template.New("heartbeat-title").Parse(strings.TrimRight(heartbeatTitle, "\n")),
-)
-
-// HeartbeatBody is the body template for the heartbeat alert task — the
-// cheapest-first triage order, so the reader does not start by assuming
-// ingestion is dead when a stopped emitter explains the same absence.
-var HeartbeatBody = template.Must(
-	template.New("heartbeat-body").Parse(heartbeatBody),
-)
+// The `HeartbeatTitle` / `HeartbeatBody` pair, and the `heartbeat-title.md` /
+// `heartbeat-body.md` files they embedded, were removed on 2026-10-15 with the
+// bespoke heartbeat alert path they existed to render. The heartbeat alert is
+// now a Prometheus rule over the published age metric, and it carries its own
+// annotations — so these templates had no remaining caller, and leaving them
+// would have invited wording fixes to an escalation nothing emits any more.
+//
+// Note for the reader who arrives from
+// [[Heartbeat Escalation Title and Body Assert an Unestablished Retention Cause]]:
+// that defect lived in these templates, and retiring the path removes its
+// subject rather than fixing it.

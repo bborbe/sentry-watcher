@@ -3,15 +3,21 @@
 // license that can be found in the LICENSE file.
 
 // Command sentry-check-heartbeat verifies that Sentry is still retaining events,
-// and files one vault task per UTC day when it is not.
+// and publishes what it saw so the alert can be raised from outside it.
 //
 // It is the detector half of the zero-events check, deliberately split from the
 // poller. The poller's emit path is superseded by the Kafka-native consumer, and
 // running it would file a second copy of every Analyze-Sentry-issue task — a
 // different dedup key and a different assignee, so the controller's
 // `(issue-key, date)` dedup could not collapse them. This binary only *reads*
-// Sentry and, on failure, writes a single alert task; it has no analysis path,
-// so there is nothing for it to double-file.
+// Sentry; it has no analysis path, so there is nothing for it to double-file.
+//
+// It no longer files a vault task of its own. The heartbeat alert is raised by a
+// Prometheus rule over the age metric this binary pushes (see publishReading) and
+// declared as an `Alert` CR in bborbe/nuke — so the alert's timing is no longer
+// welded to this CronJob's own schedule, which is what produced the 2026-10-10
+// false alarm. The run still fails on a missing heartbeat: that failure is the
+// cluster-level signal, no longer the human one.
 //
 // One-shot. Run it on a schedule shorter than HeartbeatMaxAge, so a missing
 // heartbeat is caught within N + one interval.
@@ -24,14 +30,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/bborbe/cqrs/base"
 	"github.com/bborbe/errors"
-	libkafka "github.com/bborbe/kafka"
 	libsentry "github.com/bborbe/sentry"
 	"github.com/bborbe/service"
-	libtime "github.com/bborbe/time"
 	"github.com/golang/glog"
-	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/bborbe/sentry-watcher/pkg"
 	"github.com/bborbe/sentry-watcher/pkg/factory"
@@ -77,12 +79,8 @@ func ExcludeHeartbeatMissing(options *service.Options) {
 // shape.
 func NewApplication() *Application {
 	return &Application{
-		CreateChecker: factory.CreateHeartbeatChecker,
-		CreateProducer: func(ctx context.Context, brokers libkafka.Brokers) (libkafka.SyncProducer, error) {
-			return libkafka.NewSyncProducerWithName(ctx, brokers, "sentry-check-heartbeat")
-		},
+		CreateChecker:          factory.CreateHeartbeatChecker,
 		CreateHeartbeatMetrics: pkg.NewPushGatewayHeartbeatMetrics,
-		CurrentDateTime:        libtime.NewCurrentDateTime(),
 	}
 }
 
@@ -91,8 +89,7 @@ type Application struct {
 	SentryDSN   string `required:"true"  arg:"sentry-dsn"   env:"SENTRY_DSN"   usage:"Project DSN service.Main reports its own errors with" display:"length"`
 	SentryProxy string `required:"false" arg:"sentry-proxy" env:"SENTRY_PROXY" usage:"sentry-proxy base URL"`
 
-	Stage        string           `required:"true" arg:"stage"         env:"STAGE"         usage:"Deployment stage (dev|prod)"`
-	KafkaBrokers libkafka.Brokers `required:"true" arg:"kafka-brokers" env:"KAFKA_BROKERS" usage:"Comma-separated Kafka broker list"`
+	Stage string `required:"true" arg:"stage" env:"STAGE" usage:"Deployment stage (dev|prod)"`
 
 	SentryURL       string `required:"false" arg:"sentry-url"        env:"SENTRY_URL"        usage:"Base URL of the Sentry org"                                                            default:"https://bborbe.sentry.io"`
 	SentryOrg       string `required:"false" arg:"sentry-org"        env:"SENTRY_ORG"        usage:"Sentry org slug"                                                                       default:"bborbe"`
@@ -100,29 +97,14 @@ type Application struct {
 	HeartbeatQuery  string `required:"true"  arg:"heartbeat-query"   env:"HEARTBEAT_QUERY"   usage:"Search expression matching a heartbeat event (e.g. source:sentry-heartbeat)"`
 	HeartbeatMaxAge string `required:"false" arg:"heartbeat-max-age" env:"HEARTBEAT_MAX_AGE" usage:"How old the newest heartbeat may be and still count as present (Go duration, e.g. 6h)" default:"6h"`
 
-	// PushGatewayURL is required rather than defaulted, for the same reason
-	// TaskAssignee is: a check that silently stops publishing its reading is
-	// precisely the failure this metric exists to make visible, so a missing
-	// value must fail startup loudly instead of quietly disabling the alert.
+	// PushGatewayURL is required rather than defaulted: a check that silently
+	// stops publishing its reading is precisely the failure this metric exists
+	// to make visible, so a missing value must fail startup loudly instead of
+	// quietly disabling the alert.
 	PushGatewayURL string `required:"true" arg:"pushgateway-url" env:"PUSHGATEWAY_URL" usage:"Push gateway the heartbeat reading is published to (e.g. http://pushgateway.monitoring.svc.cluster.local:9090)"`
 
-	// TaskAssignee names whoever owns Sentry ingestion. It has no default: the
-	// poller's analyzer assignee would be wrong here — there is no issue to
-	// analyze, and a silently-wrong owner is worse than a startup failure.
-	TaskAssignee string `required:"true" arg:"task-assignee" env:"TASK_ASSIGNEE" usage:"Frontmatter assignee for the alert task — whoever owns Sentry ingestion"`
-	TaskStatus   string `required:"true" arg:"task-status"   env:"TASK_STATUS"   usage:"Frontmatter status for the alert task"                                   default:"in_progress"`
-	TaskPhase    string `required:"true" arg:"task-phase"    env:"TASK_PHASE"    usage:"Frontmatter phase for the alert task"                                    default:"planning"`
-
-	TargetVault string `required:"false" arg:"target-vault" env:"TARGET_VAULT" usage:"Obsidian vault slug the alert task is materialized into; empty = controller default (openclaw)"`
-
-	// TopicPrefix selects the Kafka topic prefix used for CQRS topic construction
-	// (e.g. "develop" / "master"); independent of Stage.
-	TopicPrefix base.TopicPrefix `required:"false" arg:"topic-prefix" env:"TOPIC_PREFIX" usage:"Kafka topic prefix for CQRS topic construction"`
-
 	CreateChecker          CheckerFunc
-	CreateProducer         ProducerFunc
 	CreateHeartbeatMetrics HeartbeatMetricsFunc
-	CurrentDateTime        libtime.CurrentDateTimeGetter
 }
 
 // CheckerFunc creates a HeartbeatChecker. Matches
@@ -135,13 +117,6 @@ type CheckerFunc func(
 	maxAge time.Duration,
 ) pkg.HeartbeatChecker
 
-// ProducerFunc creates a Kafka sync producer. Matches
-// libkafka.NewSyncProducerWithName so tests can stub with a fake producer.
-type ProducerFunc func(
-	ctx context.Context,
-	brokers libkafka.Brokers,
-) (libkafka.SyncProducer, error)
-
 // HeartbeatMetricsFunc creates the publisher for the check's reading. Matches
 // pkg.NewPushGatewayHeartbeatMetrics so tests can substitute a recorder that
 // captures what would have been pushed. Production passes a nil client — the
@@ -151,13 +126,14 @@ type HeartbeatMetricsFunc func(url string, client *http.Client) pkg.HeartbeatMet
 
 // Run performs one heartbeat check and returns.
 //
-// Exit contract: nil when the heartbeat is present. When it is missing, the
-// alert task is filed *and* a non-nil error is returned, so the scheduled run
-// fails too — the task is for a human, the failed run is for the cluster.
+// Exit contract: nil when the heartbeat is present, and a non-nil error when it
+// is missing, so the scheduled run fails. That failure is now the *cluster*
+// signal only — the human-facing alert is the Prometheus rule over the metric
+// publishReading pushes, which is deliberately not keyed on this exit code.
 //
-// A query failure returns an error but files **no** task: the check could not
-// run, which is not evidence that ingestion is dead. Alerting on it would cry
-// wolf exactly when the Sentry API is unreachable.
+// A query failure also returns an error, and ErrHeartbeatMissing is what
+// separates the two: the check could not run, which is not evidence that
+// ingestion is dead.
 func (a *Application) Run(ctx context.Context, _ libsentry.Client) error {
 	maxAge := pkg.DefaultHeartbeatMaxAge
 	if a.HeartbeatMaxAge != "" {
@@ -187,9 +163,6 @@ func (a *Application) Run(ctx context.Context, _ libsentry.Client) error {
 		return errors.Wrap(ctx, verifyErr, "heartbeat check could not run")
 	}
 
-	if err := a.alert(ctx, maxAge); err != nil {
-		return err
-	}
 	return errors.Wrap(ctx, verifyErr, "heartbeat missing")
 }
 
@@ -214,44 +187,13 @@ func (a *Application) publishReading(ctx context.Context, observation pkg.Heartb
 	a.CreateHeartbeatMetrics(a.PushGatewayURL, nil).PublishLastSeen(ctx, observation.Newest)
 }
 
-// alert files the single alert task for the current UTC day.
-func (a *Application) alert(ctx context.Context, maxAge time.Duration) error {
-	syncProducer, err := a.CreateProducer(ctx, a.KafkaBrokers)
-	if err != nil {
-		return errors.Wrap(ctx, err, "create sync producer")
-	}
-	defer func() {
-		if cerr := syncProducer.Close(); cerr != nil {
-			glog.Warningf("close kafka sync producer: %v", cerr)
-		}
-	}()
-
-	cmd, err := pkg.BuildHeartbeatAlertCommand(
-		ctx,
-		a.CurrentDateTime.Now().Time().UTC().Format("2006-01-02"),
-		maxAge,
-		pkg.TaskConfig{
-			Stage:    a.Stage,
-			Assignee: a.TaskAssignee,
-			Status:   a.TaskStatus,
-			Phase:    a.TaskPhase,
-		},
-	)
-	if err != nil {
-		return errors.Wrap(ctx, err, "build heartbeat alert command")
-	}
-
-	sender := factory.CreateKafkaSender(syncProducer, a.TopicPrefix, a.TargetVault)
-	// A fresh registry rather than nil, matching cmd/run-once. Passing nil
-	// registers on the *default* registry, which panics on a second
-	// registration of the same series — unreachable for a one-shot binary, but
-	// it makes the alert path single-use per process, which is a trap for any
-	// caller that drives Run twice. This binary serves no /metrics endpoint, so
-	// nothing is lost by not using the default registry.
-	if !pkg.NewTaskPublisher(sender, pkg.NewMetrics(prometheus.NewRegistry())).
-		PublishCreate(ctx, cmd) {
-		return errors.Errorf(ctx, "publish heartbeat alert task failed")
-	}
-	glog.V(2).Infof("heartbeat alert published taskID=%s", string(cmd.TaskIdentifier))
-	return nil
-}
+// The alert path that lived here — building a day-keyed vault task, publishing
+// it over Kafka and counting the publish — was removed on 2026-10-15. The
+// heartbeat alert is raised by a Prometheus rule over the age metric this binary
+// pushes, declared as an `Alert` CR in bborbe/nuke's `sentry-heartbeat/alerts/`.
+//
+// The consequence to keep in mind: this binary's remaining human-visible output
+// is that metric and its exit code, and the exit code is deliberately *not* the
+// alert channel — a run that fails is a cluster signal, while the alert fires on
+// the age crossing the bound regardless of whether this CronJob ran at all.
+// See [[The Heartbeat Alert Hand-Rolls What Prometheus and Alertmanager Provide]].
