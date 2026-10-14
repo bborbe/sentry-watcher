@@ -6,7 +6,6 @@ package tasktemplate_test
 
 import (
 	"bytes"
-	"strings"
 	"text/template"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -62,39 +61,13 @@ var _ = Describe("tasktemplate defaults", func() {
 	})
 })
 
-// The heartbeat escalation must state the observation (no heartbeat) rather than
-// asserting a cause the check has not established. The retention diagnosis was
-// wrong for 26 consecutive days while retention worked, and it rendered in three
-// places — the title, the body's H1, and the body's prose — so a probe covering
-// only the headings would pass while the body still asserted it.
-var _ = Describe("tasktemplate heartbeat escalation", func() {
-	It("HeartbeatTitle states the missing-heartbeat observation", func() {
-		out := render(tasktemplate.HeartbeatTitle)
-		Expect(out).To(Equal("Sentry heartbeat missing - 2026-08-23"))
-		Expect(out).NotTo(ContainSubstring("retaining events"))
-		Expect(out).NotTo(ContainSubstring("not retaining"))
-		Expect(out).NotTo(ContainSubstring("\n"))
-	})
-
-	It("HeartbeatBody leads with the same observation in its H1", func() {
-		Expect(render(tasktemplate.HeartbeatBody)).
-			To(HavePrefix("# Sentry heartbeat missing - 2026-08-23\n"))
-	})
-
-	It("HeartbeatBody asserts no retention cause in its prose", func() {
-		out := render(tasktemplate.HeartbeatBody)
-		Expect(out).NotTo(ContainSubstring("retaining events"))
-		Expect(out).NotTo(ContainSubstring("not retaining"))
-		Expect(out).NotTo(ContainSubstring("The likeliest cause"))
-	})
-
-	It("HeartbeatBody orders the three candidates cheapest-first", func() {
-		out := render(tasktemplate.HeartbeatBody)
-		emitter := strings.Index(out, "Is the emitter running?")
-		proxy := strings.Index(out, "Is `sentry-proxy` forwarding?")
-		quota := strings.Index(out, "Is the org over its free-tier cap?")
-		Expect(emitter).To(BeNumerically(">", -1))
-		Expect(proxy).To(BeNumerically(">", emitter))
-		Expect(quota).To(BeNumerically(">", proxy))
-	})
-})
+// The heartbeat escalation specs that lived here — title states the observation,
+// body leads with the same, no asserted retention cause, candidates
+// cheapest-first — were removed on 2026-10-15 with the templates they covered.
+// The bespoke heartbeat alert path is retired; the alert is now a Prometheus
+// rule over the published age metric and carries its own annotations.
+//
+// Recorded rather than silently dropped because the defect those specs guarded
+// against (the retention diagnosis asserted for 26 days while retention worked)
+// was real, and the fix for it was these specs. Retiring the path removes the
+// subject; it does not mean the guard was unnecessary.

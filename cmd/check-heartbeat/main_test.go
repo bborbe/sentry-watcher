@@ -11,13 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/IBM/sarama"
-	saramamocks "github.com/IBM/sarama/mocks"
 	"github.com/bborbe/errors"
-	libkafka "github.com/bborbe/kafka"
 	libsentry "github.com/bborbe/sentry"
 	"github.com/bborbe/service"
-	libtime "github.com/bborbe/time"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/format"
@@ -28,27 +24,11 @@ import (
 	"github.com/bborbe/sentry-watcher/pkg"
 )
 
-// newFakeProducer returns a sarama mock SyncProducer that records sends in
-// memory — no network connection.
-//
-// One send is expected: the alert path publishes exactly one CreateTaskCommand.
-// The mock fails the spec on an unexpected send, which is what catches a caller
-// that publishes more than the one-per-day task this binary promises.
-func newFakeProducer(t GinkgoTInterface) libkafka.SyncProducer {
-	producer := saramamocks.NewSyncProducer(t, sarama.NewConfig())
-	// Returns the producer for chaining, not an error — nothing to assert here.
-	_ = producer.ExpectSendMessageAndSucceed()
-	return libkafka.NewSyncProducerFromSaramaSyncProducer(producer)
-}
-
 var _ = Describe("Run", func() {
 	var (
 		ctx     context.Context
 		checker *mocks.HeartbeatChecker
 		app     *check.Application
-		// alerts counts producer creations, which happen only on the alert
-		// path — so it is a direct proxy for "a task was attempted".
-		alerts int
 		// heartbeatMetrics records what would have been pushed to the gateway.
 		heartbeatMetrics *mocks.HeartbeatMetrics
 	)
@@ -57,22 +37,12 @@ var _ = Describe("Run", func() {
 		ctx = context.Background()
 		checker = &mocks.HeartbeatChecker{}
 		heartbeatMetrics = &mocks.HeartbeatMetrics{}
-		alerts = 0
 		app = &check.Application{
 			Stage:          "dev",
-			KafkaBrokers:   libkafka.Brokers{"localhost:9092"},
 			SentryURL:      "https://bborbe.sentry.io",
 			SentryOrg:      "bborbe",
 			SentryAPIToken: "token",
 			HeartbeatQuery: "source:sentry-heartbeat",
-			TaskAssignee:   "bborbe",
-			TaskStatus:     "in_progress",
-			TaskPhase:      "planning",
-			TargetVault:    "personal",
-			CreateProducer: func(_ context.Context, _ libkafka.Brokers) (libkafka.SyncProducer, error) {
-				alerts++
-				return newFakeProducer(GinkgoT()), nil
-			},
 			CreateChecker: func(
 				_ *http.Client,
 				_ pkg.SentryConfig,
@@ -85,24 +55,21 @@ var _ = Describe("Run", func() {
 			CreateHeartbeatMetrics: func(_ string, _ *http.Client) pkg.HeartbeatMetrics {
 				return heartbeatMetrics
 			},
-			CurrentDateTime: libtime.CurrentDateTimeGetterFunc(func() libtime.DateTime {
-				return libtime.DateTime(time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC))
-			}),
 		}
 	})
 
-	// The healthy path: ingestion is retaining events, so the run succeeds and
-	// files nothing. A task here would be a false positive on every good cycle.
-	It("returns nil and files no task when the heartbeat is present", func() {
+	// The healthy path: ingestion is retaining events, so the run succeeds.
+	It("returns nil when the heartbeat is present", func() {
 		checker.VerifyReturns(pkg.HeartbeatObservation{}, nil)
 
 		Expect(app.Run(ctx, nil)).To(Succeed())
-		Expect(alerts).To(Equal(0))
 	})
 
-	// The finding, and the reason this binary exists: the alert has to be
-	// *delivered*, not logged. The run also fails so the scheduled job shows it.
-	It("files an alert task and fails the run when the heartbeat is missing", func() {
+	// The finding still fails the run, so the scheduled job shows it — but that
+	// failure is now the *cluster* signal only. The human-facing alert is the
+	// Prometheus rule over the published metric, deliberately not keyed on this
+	// exit code, so this spec asserts the sentinel rather than a filed task.
+	It("fails the run and keeps the sentinel when the heartbeat is missing", func() {
 		checker.VerifyReturns(
 			pkg.HeartbeatObservation{},
 			stderrors.Join(pkg.ErrHeartbeatMissing, stderrors.New("stale")),
@@ -111,20 +78,20 @@ var _ = Describe("Run", func() {
 		err := app.Run(ctx, nil)
 
 		Expect(err).To(HaveOccurred())
-		Expect(alerts).To(Equal(1))
+		Expect(stderrors.Is(err, pkg.ErrHeartbeatMissing)).To(BeTrue())
 	})
 
-	// A check that could not run is not evidence that ingestion is dead.
-	// Filing here would cry wolf exactly when the Sentry API is unreachable —
-	// the failure mode the sentinel exists to separate.
-	It("files no task when the check itself failed", func() {
+	// A check that could not run is not evidence that ingestion is dead — the
+	// sentinel is what lets a caller tell the two apart, and the wrapping here
+	// must not blur them into one "the check failed" reading.
+	It("separates a check that could not run from the finding", func() {
 		checker.VerifyReturns(pkg.HeartbeatObservation{}, stderrors.New("sentry unreachable"))
 
 		err := app.Run(ctx, nil)
 
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("heartbeat check could not run"))
-		Expect(alerts).To(Equal(0))
+		Expect(stderrors.Is(err, pkg.ErrHeartbeatMissing)).To(BeFalse())
 	})
 
 	It("publishes the reading when the heartbeat is present", func() {
@@ -170,10 +137,10 @@ var _ = Describe("Run", func() {
 	})
 })
 
-// The expected alarm must not reach Sentry. It is already delivered twice — the
-// vault task for a human, the failed run for the cluster — and reporting it a
-// third time spends the org's ingest quota on a known condition, through the
-// same proxy this check exists to watch.
+// The expected alarm must not reach Sentry. It is already carried twice — by the
+// age metric the Prometheus alert fires on, and by the failed run — and
+// reporting it a third time spends the org's ingest quota on a known condition,
+// through the same proxy this check exists to watch.
 var _ = Describe("ExcludeHeartbeatMissing", func() {
 	It("excludes the heartbeat-missing error the run returns", func() {
 		options := service.NewOptions(check.ExcludeHeartbeatMissing)

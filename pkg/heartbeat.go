@@ -9,11 +9,8 @@ import (
 	stderrors "errors"
 	"time"
 
-	task "github.com/bborbe/agent/command/task"
 	"github.com/bborbe/errors"
 	libtime "github.com/bborbe/time"
-
-	"github.com/bborbe/sentry-watcher/pkg/tasktemplate"
 )
 
 //counterfeiter:generate -o ../mocks/heartbeat_checker.go --fake-name HeartbeatChecker . HeartbeatChecker
@@ -186,35 +183,17 @@ func newestHeartbeat(ctx context.Context, issues []Issue) (time.Time, error) {
 	return newest, nil
 }
 
-// HeartbeatMissingShortID is the synthetic short-id the alert task carries.
-// Deliberately not a Sentry short-id: the alert reports the *absence* of
-// events, so there is no issue for it to link to.
-const HeartbeatMissingShortID = "SENTRY-HEARTBEAT-MISSING"
-
-// BuildHeartbeatAlertCommand assembles the CreateTaskCommand emitted when no
-// heartbeat is visible.
+// The bespoke heartbeat alert path was retired here on 2026-10-15. The alert is
+// now raised by a Prometheus rule over the published age metric, declared as an
+// `Alert` CR under bborbe/nuke's `sentry-heartbeat/alerts/` — so the vault-task
+// builder that lived here, and the `tasktemplate.Heartbeat*` pair it rendered,
+// were removed with it.
 //
-// date is the UTC calendar date, and it is what makes this safe to run often:
-// the derived task id collapses every failure in a day to one task. A detector
-// stuck on a dead pipeline fails on *every* check, so a per-check id would bury
-// the signal under its own repetition. The title/body templates are the
-// heartbeat pair rather than the analyze pair — this task must not read as a
-// Sentry issue.
-func BuildHeartbeatAlertCommand(
-	ctx context.Context,
-	date string,
-	maxAge time.Duration,
-	cfg TaskConfig,
-) (task.CreateCommand, error) {
-	cfg.TitleTemplate = tasktemplate.HeartbeatTitle
-	cfg.BodyTemplate = tasktemplate.HeartbeatBody
-	return BuildCreateCommand(
-		ctx,
-		Issue{
-			ShortID: HeartbeatMissingShortID,
-			Title:   "no heartbeat within " + maxAge.String(),
-		},
-		date,
-		cfg,
-	)
-}
+// Why removal rather than coexistence: two paths that can both raise the same
+// alert is the condition this retirement exists to end — the day-keyed task id
+// collapsed a day of failures into one task (Alertmanager's `group_interval`
+// reimplemented worse), and the alert's timing was welded to the check's own
+// CronJob schedule, which is what produced the 2026-10-10 false alarm. The
+// verdict itself is unchanged: `Verify` still returns `ErrHeartbeatMissing`, and
+// the check still fails its run on it, so the cluster-level signal survives.
+// See [[The Heartbeat Alert Hand-Rolls What Prometheus and Alertmanager Provide]].
