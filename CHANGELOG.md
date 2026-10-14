@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- fix: the zero-events heartbeat escalation states the missing-heartbeat observation instead of asserting that Sentry stopped retaining events. The assertion was carried in three places — the title, the body's H1, and the body's prose — so correcting the title alone would have left the rendered escalation leading with a cause the check never established. It was wrong for 26 consecutive days while retention worked. The rendered-template test now asserts all three sites, so a partial fix cannot pass.
+
 ## v0.3.5
 
 - chore: update Go to 1.27.2 and github.com/IBM/sarama to v1.61.1, github.com/bborbe/agent to v0.100.0, github.com/bborbe/cqrs to v0.6.12, github.com/bborbe/cron to v1.9.2, github.com/bborbe/errors to v1.6.3, github.com/bborbe/http to v1.26.29, github.com/bborbe/kafka to v1.27.1, github.com/bborbe/log to v1.7.4, github.com/bborbe/run to v1.11.2, github.com/bborbe/sentry to v1.10.4, github.com/bborbe/service to v1.10.16, github.com/bborbe/time to v1.27.16, github.com/onsi/ginkgo/v2 to v2.33.1, github.com/onsi/gomega to v1.44.0, github.com/prometheus/client_golang to v1.25.0

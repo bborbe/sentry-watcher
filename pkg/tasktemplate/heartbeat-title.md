@@ -1,1 +1,1 @@
-Sentry has stopped retaining events - {{.Date}}
+Sentry heartbeat missing - {{.Date}}
