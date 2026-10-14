@@ -51,14 +51,16 @@ var _ = Describe("pkg.HeartbeatChecker.Verify", func() {
 	It("returns nil when a recent heartbeat event is visible", func() {
 		client.UnresolvedIssuesReturns([]pkg.Issue{lastSeenOf(30 * time.Minute)}, nil)
 
-		Expect(pkg.NewHeartbeatChecker(cfg).Verify(ctx)).To(Succeed())
+		_, err := pkg.NewHeartbeatChecker(cfg).Verify(ctx)
+		Expect(err).To(Succeed())
 	})
 
 	// The bound is inclusive: a heartbeat exactly at MaxAge is still within it.
 	It("returns nil when the heartbeat is exactly at the MaxAge bound", func() {
 		client.UnresolvedIssuesReturns([]pkg.Issue{lastSeenOf(6 * time.Hour)}, nil)
 
-		Expect(pkg.NewHeartbeatChecker(cfg).Verify(ctx)).To(Succeed())
+		_, err := pkg.NewHeartbeatChecker(cfg).Verify(ctx)
+		Expect(err).To(Succeed())
 	})
 
 	// The load-bearing case for this commit: the endpoint applies no time window,
@@ -68,7 +70,7 @@ var _ = Describe("pkg.HeartbeatChecker.Verify", func() {
 	It("returns an error when the only visible heartbeat is older than MaxAge", func() {
 		client.UnresolvedIssuesReturns([]pkg.Issue{lastSeenOf(7 * time.Hour)}, nil)
 
-		err := pkg.NewHeartbeatChecker(cfg).Verify(ctx)
+		_, err := pkg.NewHeartbeatChecker(cfg).Verify(ctx)
 
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("past the 6h0m0s limit"))
@@ -83,7 +85,8 @@ var _ = Describe("pkg.HeartbeatChecker.Verify", func() {
 			nil,
 		)
 
-		Expect(pkg.NewHeartbeatChecker(cfg).Verify(ctx)).To(Succeed())
+		_, err := pkg.NewHeartbeatChecker(cfg).Verify(ctx)
+		Expect(err).To(Succeed())
 	})
 
 	// The core signal: no heartbeat visible. This is what a quiet fleet and
@@ -92,7 +95,7 @@ var _ = Describe("pkg.HeartbeatChecker.Verify", func() {
 	It("returns an error naming the absence when no heartbeat is visible", func() {
 		client.UnresolvedIssuesReturns(nil, nil)
 
-		err := pkg.NewHeartbeatChecker(cfg).Verify(ctx)
+		_, err := pkg.NewHeartbeatChecker(cfg).Verify(ctx)
 
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("no heartbeat event visible"))
@@ -103,7 +106,7 @@ var _ = Describe("pkg.HeartbeatChecker.Verify", func() {
 	It("wraps a query error rather than reporting an absent heartbeat", func() {
 		client.UnresolvedIssuesReturns(nil, stderrors.New("boom"))
 
-		err := pkg.NewHeartbeatChecker(cfg).Verify(ctx)
+		_, err := pkg.NewHeartbeatChecker(cfg).Verify(ctx)
 
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("query heartbeat"))
@@ -118,7 +121,7 @@ var _ = Describe("pkg.HeartbeatChecker.Verify", func() {
 		cancel()
 		client.UnresolvedIssuesReturns([]pkg.Issue{lastSeenOf(10 * time.Minute)}, nil)
 
-		err := pkg.NewHeartbeatChecker(cfg).Verify(cancelled)
+		_, err := pkg.NewHeartbeatChecker(cfg).Verify(cancelled)
 
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("context canceled"))
@@ -131,7 +134,7 @@ var _ = Describe("pkg.HeartbeatChecker.Verify", func() {
 	It("reports an unparseable lastSeen as neither present nor absent", func() {
 		client.UnresolvedIssuesReturns([]pkg.Issue{{ShortID: "SENTRY-HEARTBEAT"}}, nil)
 
-		err := pkg.NewHeartbeatChecker(cfg).Verify(ctx)
+		_, err := pkg.NewHeartbeatChecker(cfg).Verify(ctx)
 
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("cannot evaluate staleness"))
@@ -144,7 +147,7 @@ var _ = Describe("pkg.HeartbeatChecker.Verify", func() {
 	It("marks an absent heartbeat with ErrHeartbeatMissing", func() {
 		client.UnresolvedIssuesReturns(nil, nil)
 
-		err := pkg.NewHeartbeatChecker(cfg).Verify(ctx)
+		_, err := pkg.NewHeartbeatChecker(cfg).Verify(ctx)
 
 		Expect(stderrors.Is(err, pkg.ErrHeartbeatMissing)).To(BeTrue())
 	})
@@ -152,7 +155,7 @@ var _ = Describe("pkg.HeartbeatChecker.Verify", func() {
 	It("marks a stale heartbeat with ErrHeartbeatMissing", func() {
 		client.UnresolvedIssuesReturns([]pkg.Issue{lastSeenOf(7 * time.Hour)}, nil)
 
-		err := pkg.NewHeartbeatChecker(cfg).Verify(ctx)
+		_, err := pkg.NewHeartbeatChecker(cfg).Verify(ctx)
 
 		Expect(stderrors.Is(err, pkg.ErrHeartbeatMissing)).To(BeTrue())
 	})
@@ -163,7 +166,7 @@ var _ = Describe("pkg.HeartbeatChecker.Verify", func() {
 	It("does not mark a query failure with ErrHeartbeatMissing", func() {
 		client.UnresolvedIssuesReturns(nil, stderrors.New("boom"))
 
-		err := pkg.NewHeartbeatChecker(cfg).Verify(ctx)
+		_, err := pkg.NewHeartbeatChecker(cfg).Verify(ctx)
 
 		Expect(stderrors.Is(err, pkg.ErrHeartbeatMissing)).To(BeFalse())
 	})
@@ -171,8 +174,102 @@ var _ = Describe("pkg.HeartbeatChecker.Verify", func() {
 	It("does not mark an unparseable lastSeen with ErrHeartbeatMissing", func() {
 		client.UnresolvedIssuesReturns([]pkg.Issue{{ShortID: "SENTRY-HEARTBEAT"}}, nil)
 
-		err := pkg.NewHeartbeatChecker(cfg).Verify(ctx)
+		_, err := pkg.NewHeartbeatChecker(cfg).Verify(ctx)
 
 		Expect(stderrors.Is(err, pkg.ErrHeartbeatMissing)).To(BeFalse())
+	})
+})
+
+// The observation is the half of Verify's answer that the published metric
+// carries, and it is deliberately independent of the verdict. The load-bearing
+// case is the stale heartbeat: the verdict is "missing", but that timestamp is
+// exactly what the alert needs, because the alert fires on its age. Returning
+// it only on success would blind the alert at the one moment it must fire.
+var _ = Describe("pkg.HeartbeatChecker.Verify observation", func() {
+	var (
+		ctx    context.Context
+		client *mocks.SentryClient
+		now    time.Time
+		cfg    pkg.HeartbeatCheckerConfig
+	)
+
+	lastSeenOf := func(age time.Duration) pkg.Issue {
+		return pkg.Issue{
+			ShortID:  "SENTRY-HEARTBEAT",
+			LastSeen: now.Add(-age).Format(time.RFC3339),
+		}
+	}
+
+	BeforeEach(func() {
+		ctx = context.Background()
+		client = &mocks.SentryClient{}
+		now = time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+		cfg = pkg.HeartbeatCheckerConfig{
+			Client: client,
+			MaxAge: 6 * time.Hour,
+			CurrentDateTimeGetter: libtime.CurrentDateTimeGetterFunc(func() libtime.DateTime {
+				return libtime.DateTime(now)
+			}),
+		}
+	})
+
+	// The reason Verify returns an observation at all.
+	It("returns the newest lastSeen even when the verdict is stale", func() {
+		client.UnresolvedIssuesReturns([]pkg.Issue{lastSeenOf(7 * time.Hour)}, nil)
+
+		observation, err := pkg.NewHeartbeatChecker(cfg).Verify(ctx)
+
+		Expect(err).To(HaveOccurred())
+		Expect(stderrors.Is(err, pkg.ErrHeartbeatMissing)).To(BeTrue())
+		Expect(observation.Newest).To(Equal(now.Add(-7 * time.Hour)))
+	})
+
+	It("returns the newest lastSeen when the heartbeat is present", func() {
+		client.UnresolvedIssuesReturns([]pkg.Issue{lastSeenOf(30 * time.Minute)}, nil)
+
+		observation, err := pkg.NewHeartbeatChecker(cfg).Verify(ctx)
+
+		Expect(err).To(Succeed())
+		Expect(observation.Newest).To(Equal(now.Add(-30 * time.Minute)))
+	})
+
+	It("reports the newest lastSeen, not the oldest", func() {
+		client.UnresolvedIssuesReturns(
+			[]pkg.Issue{lastSeenOf(72 * time.Hour), lastSeenOf(10 * time.Minute)},
+			nil,
+		)
+
+		observation, err := pkg.NewHeartbeatChecker(cfg).Verify(ctx)
+
+		Expect(err).To(Succeed())
+		Expect(observation.Newest).To(Equal(now.Add(-10 * time.Minute)))
+	})
+
+	// Zero is the publisher's "unknown" signal, and it has to stay
+	// distinguishable from a real timestamp: a zero pushed to the gateway would
+	// read as a heartbeat from 1970 and pin the computed age at ~56 years,
+	// which is a permanent alert rather than a silent one.
+	It("leaves the observation zero when no heartbeat is visible", func() {
+		client.UnresolvedIssuesReturns(nil, nil)
+
+		observation, _ := pkg.NewHeartbeatChecker(cfg).Verify(ctx)
+
+		Expect(observation.Newest.IsZero()).To(BeTrue())
+	})
+
+	It("leaves the observation zero when the query fails", func() {
+		client.UnresolvedIssuesReturns(nil, stderrors.New("boom"))
+
+		observation, _ := pkg.NewHeartbeatChecker(cfg).Verify(ctx)
+
+		Expect(observation.Newest.IsZero()).To(BeTrue())
+	})
+
+	It("leaves the observation zero when no lastSeen parses", func() {
+		client.UnresolvedIssuesReturns([]pkg.Issue{{ShortID: "SENTRY-HEARTBEAT"}}, nil)
+
+		observation, _ := pkg.NewHeartbeatChecker(cfg).Verify(ctx)
+
+		Expect(observation.Newest.IsZero()).To(BeTrue())
 	})
 })

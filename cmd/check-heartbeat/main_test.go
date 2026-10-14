@@ -49,11 +49,14 @@ var _ = Describe("Run", func() {
 		// alerts counts producer creations, which happen only on the alert
 		// path — so it is a direct proxy for "a task was attempted".
 		alerts int
+		// heartbeatMetrics records what would have been pushed to the gateway.
+		heartbeatMetrics *mocks.HeartbeatMetrics
 	)
 
 	BeforeEach(func() {
 		ctx = context.Background()
 		checker = &mocks.HeartbeatChecker{}
+		heartbeatMetrics = &mocks.HeartbeatMetrics{}
 		alerts = 0
 		app = &check.Application{
 			Stage:          "dev",
@@ -78,6 +81,10 @@ var _ = Describe("Run", func() {
 			) pkg.HeartbeatChecker {
 				return checker
 			},
+			PushGatewayURL: "http://pushgateway.monitoring.svc.cluster.local:9090",
+			CreateHeartbeatMetrics: func(_ string, _ *http.Client) pkg.HeartbeatMetrics {
+				return heartbeatMetrics
+			},
 			CurrentDateTime: libtime.CurrentDateTimeGetterFunc(func() libtime.DateTime {
 				return libtime.DateTime(time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC))
 			}),
@@ -87,7 +94,7 @@ var _ = Describe("Run", func() {
 	// The healthy path: ingestion is retaining events, so the run succeeds and
 	// files nothing. A task here would be a false positive on every good cycle.
 	It("returns nil and files no task when the heartbeat is present", func() {
-		checker.VerifyReturns(nil)
+		checker.VerifyReturns(pkg.HeartbeatObservation{}, nil)
 
 		Expect(app.Run(ctx, nil)).To(Succeed())
 		Expect(alerts).To(Equal(0))
@@ -97,6 +104,7 @@ var _ = Describe("Run", func() {
 	// *delivered*, not logged. The run also fails so the scheduled job shows it.
 	It("files an alert task and fails the run when the heartbeat is missing", func() {
 		checker.VerifyReturns(
+			pkg.HeartbeatObservation{},
 			stderrors.Join(pkg.ErrHeartbeatMissing, stderrors.New("stale")),
 		)
 
@@ -110,13 +118,55 @@ var _ = Describe("Run", func() {
 	// Filing here would cry wolf exactly when the Sentry API is unreachable —
 	// the failure mode the sentinel exists to separate.
 	It("files no task when the check itself failed", func() {
-		checker.VerifyReturns(stderrors.New("sentry unreachable"))
+		checker.VerifyReturns(pkg.HeartbeatObservation{}, stderrors.New("sentry unreachable"))
 
 		err := app.Run(ctx, nil)
 
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("heartbeat check could not run"))
 		Expect(alerts).To(Equal(0))
+	})
+
+	It("publishes the reading when the heartbeat is present", func() {
+		fresh := time.Date(2026, 9, 13, 11, 30, 0, 0, time.UTC)
+		checker.VerifyReturns(pkg.HeartbeatObservation{Newest: fresh}, nil)
+
+		Expect(app.Run(ctx, nil)).To(Succeed())
+
+		Expect(heartbeatMetrics.PublishLastSeenCallCount()).To(Equal(1))
+		_, published := heartbeatMetrics.PublishLastSeenArgsForCall(0)
+		Expect(published).To(Equal(fresh))
+	})
+
+	// The case that justifies returning an observation at all. The verdict here
+	// is bad, but the alert fires on the *age* of this timestamp — so a run that
+	// published only on success would withhold the metric at the one moment the
+	// alert has to work.
+	It("publishes the reading even when the heartbeat is stale", func() {
+		stale := time.Date(2026, 9, 13, 5, 0, 0, 0, time.UTC)
+		checker.VerifyReturns(
+			pkg.HeartbeatObservation{Newest: stale},
+			stderrors.Join(pkg.ErrHeartbeatMissing, stderrors.New("stale")),
+		)
+
+		Expect(app.Run(ctx, nil)).To(HaveOccurred())
+
+		Expect(heartbeatMetrics.PublishLastSeenCallCount()).To(Equal(1))
+		_, published := heartbeatMetrics.PublishLastSeenArgsForCall(0)
+		Expect(published).To(Equal(stale))
+	})
+
+	// A check that could not establish a timestamp must say exactly that, rather
+	// than have a plausible-looking value invented for it. The publisher is the
+	// one place that decides what "unknown" means for the gateway.
+	It("passes an unknown reading through when the check established no timestamp", func() {
+		checker.VerifyReturns(pkg.HeartbeatObservation{}, stderrors.New("sentry unreachable"))
+
+		Expect(app.Run(ctx, nil)).To(HaveOccurred())
+
+		Expect(heartbeatMetrics.PublishLastSeenCallCount()).To(Equal(1))
+		_, published := heartbeatMetrics.PublishLastSeenArgsForCall(0)
+		Expect(published.IsZero()).To(BeTrue())
 	})
 })
 
