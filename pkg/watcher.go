@@ -146,7 +146,7 @@ func (w *watcher) checkHeartbeat(ctx context.Context) {
 	if w.heartbeat == nil {
 		return
 	}
-	if err := w.heartbeat.Verify(ctx); err != nil {
+	if _, err := w.heartbeat.Verify(ctx); err != nil {
 		w.metrics.IncPollCycle("heartbeat_missing")
 		glog.Errorf("heartbeat check failed: %v", err)
 	}

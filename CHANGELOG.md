@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- feat: `cmd/check-heartbeat` publishes the newest heartbeat's `lastSeen` to the push gateway as `sentry_watcher_heartbeat_last_seen_timestamp_seconds`, so the alerting decision stops riding on the check process's exit code. It is a **timestamp, not an age**: an age gauge freezes at its last healthy value when the pusher dies, so an alert built on it would go quiet exactly when the check does — a timestamp makes `time() - metric` keep growing instead. `HeartbeatChecker.Verify` now returns a `HeartbeatObservation` alongside its verdict, because that timestamp has to survive the *missing* verdict: a stale heartbeat's age is precisely what the alert fires on, so returning it only on success would blind the alert at the one moment it matters. A zero reading is not pushed at all — writing it would place a heartbeat in 1970 and pin the computed age at ~56 years, turning a transient query failure into a permanent alert. `PUSHGATEWAY_URL` is required rather than defaulted, so a deployment that forgets it fails startup instead of silently disabling the alert, and publishing never fails the check: a gateway that is down costs a metric, not a verdict. ⚠️ Deploy ordering: `bborbe/nuke`'s `sentry-heartbeat-check` CronJob must set `PUSHGATEWAY_URL` before this image is tagged into it
+
 ## v0.3.5
 
 - chore: update Go to 1.27.2 and github.com/IBM/sarama to v1.61.1, github.com/bborbe/agent to v0.100.0, github.com/bborbe/cqrs to v0.6.12, github.com/bborbe/cron to v1.9.2, github.com/bborbe/errors to v1.6.3, github.com/bborbe/http to v1.26.29, github.com/bborbe/kafka to v1.27.1, github.com/bborbe/log to v1.7.4, github.com/bborbe/run to v1.11.2, github.com/bborbe/sentry to v1.10.4, github.com/bborbe/service to v1.10.16, github.com/bborbe/time to v1.27.16, github.com/onsi/ginkgo/v2 to v2.33.1, github.com/onsi/gomega to v1.44.0, github.com/prometheus/client_golang to v1.25.0

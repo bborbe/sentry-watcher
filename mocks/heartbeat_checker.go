@@ -12,22 +12,24 @@ import (
 )
 
 type HeartbeatChecker struct {
-	VerifyStub        func(context.Context) error
+	VerifyStub        func(context.Context) (pkg.HeartbeatObservation, error)
 	verifyMutex       sync.RWMutex
 	verifyArgsForCall []struct {
 		arg1 context.Context
 	}
 	verifyReturns struct {
-		result1 error
+		result1 pkg.HeartbeatObservation
+		result2 error
 	}
 	verifyReturnsOnCall map[int]struct {
-		result1 error
+		result1 pkg.HeartbeatObservation
+		result2 error
 	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
 }
 
-func (fake *HeartbeatChecker) Verify(arg1 context.Context) error {
+func (fake *HeartbeatChecker) Verify(arg1 context.Context) (pkg.HeartbeatObservation, error) {
 	fake.verifyMutex.Lock()
 	ret, specificReturn := fake.verifyReturnsOnCall[len(fake.verifyArgsForCall)]
 	fake.verifyArgsForCall = append(fake.verifyArgsForCall, struct {
@@ -41,9 +43,9 @@ func (fake *HeartbeatChecker) Verify(arg1 context.Context) error {
 		return stub(arg1)
 	}
 	if specificReturn {
-		return ret.result1
+		return ret.result1, ret.result2
 	}
-	return fakeReturns.result1
+	return fakeReturns.result1, fakeReturns.result2
 }
 
 func (fake *HeartbeatChecker) VerifyCallCount() int {
@@ -52,7 +54,7 @@ func (fake *HeartbeatChecker) VerifyCallCount() int {
 	return len(fake.verifyArgsForCall)
 }
 
-func (fake *HeartbeatChecker) VerifyCalls(stub func(context.Context) error) {
+func (fake *HeartbeatChecker) VerifyCalls(stub func(context.Context) (pkg.HeartbeatObservation, error)) {
 	fake.verifyMutex.Lock()
 	defer fake.verifyMutex.Unlock()
 	fake.VerifyStub = stub
@@ -65,27 +67,30 @@ func (fake *HeartbeatChecker) VerifyArgsForCall(i int) context.Context {
 	return argsForCall.arg1
 }
 
-func (fake *HeartbeatChecker) VerifyReturns(result1 error) {
+func (fake *HeartbeatChecker) VerifyReturns(result1 pkg.HeartbeatObservation, result2 error) {
 	fake.verifyMutex.Lock()
 	defer fake.verifyMutex.Unlock()
 	fake.VerifyStub = nil
 	fake.verifyReturns = struct {
-		result1 error
-	}{result1}
+		result1 pkg.HeartbeatObservation
+		result2 error
+	}{result1, result2}
 }
 
-func (fake *HeartbeatChecker) VerifyReturnsOnCall(i int, result1 error) {
+func (fake *HeartbeatChecker) VerifyReturnsOnCall(i int, result1 pkg.HeartbeatObservation, result2 error) {
 	fake.verifyMutex.Lock()
 	defer fake.verifyMutex.Unlock()
 	fake.VerifyStub = nil
 	if fake.verifyReturnsOnCall == nil {
 		fake.verifyReturnsOnCall = make(map[int]struct {
-			result1 error
+			result1 pkg.HeartbeatObservation
+			result2 error
 		})
 	}
 	fake.verifyReturnsOnCall[i] = struct {
-		result1 error
-	}{result1}
+		result1 pkg.HeartbeatObservation
+		result2 error
+	}{result1, result2}
 }
 
 func (fake *HeartbeatChecker) Invocations() map[string][][]interface{} {

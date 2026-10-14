@@ -50,10 +50,29 @@ var ErrHeartbeatMissing = stderrors.New("heartbeat missing")
 // (SentryConfig.Query, e.g. "source:sentry-heartbeat"), so UnresolvedIssues
 // returns heartbeat events rather than the fleet's real alerts.
 type HeartbeatChecker interface {
-	// Verify returns nil when a heartbeat event newer than MaxAge is visible.
-	// A non-nil error means none is — ingestion is not retaining events, or
-	// the heartbeat emitter has stopped.
-	Verify(ctx context.Context) error
+	// Verify returns the observation and nil when a heartbeat event newer than
+	// MaxAge is visible. A non-nil error means none is — ingestion is not
+	// retaining events, or the heartbeat emitter has stopped.
+	//
+	// The observation is returned on the missing path too, not only on success.
+	// A stale heartbeat still has a lastSeen, and that timestamp is the whole
+	// content of the published metric: the alert keys on its age, so the value
+	// that has to reach Prometheus is precisely the one the verdict calls bad.
+	// Only an outcome that establishes no timestamp at all — no event visible,
+	// an unparseable lastSeen, or a failed query — leaves Newest zero.
+	Verify(ctx context.Context) (HeartbeatObservation, error)
+}
+
+// HeartbeatObservation is what one check saw, independent of its verdict.
+//
+// It is separate from the error rather than folded into it because the two
+// answer different questions: the error says whether ingestion is healthy, the
+// observation says what the newest heartbeat's lastSeen was. A caller
+// publishing the metric needs the second even when the first is bad.
+type HeartbeatObservation struct {
+	// Newest is the most recent heartbeat's lastSeen. Zero when the check
+	// could not establish one — see Verify.
+	Newest time.Time
 }
 
 // DefaultHeartbeatMaxAge is how old the newest heartbeat may be when
@@ -93,13 +112,13 @@ type heartbeatChecker struct {
 	cfg HeartbeatCheckerConfig
 }
 
-func (c *heartbeatChecker) Verify(ctx context.Context) error {
+func (c *heartbeatChecker) Verify(ctx context.Context) (HeartbeatObservation, error) {
 	issues, err := c.cfg.Client.UnresolvedIssues(ctx)
 	if err != nil {
-		return errors.Wrap(ctx, err, "query heartbeat")
+		return HeartbeatObservation{}, errors.Wrap(ctx, err, "query heartbeat")
 	}
 	if len(issues) == 0 {
-		return errors.Wrap(
+		return HeartbeatObservation{}, errors.Wrap(
 			ctx,
 			ErrHeartbeatMissing,
 			"no heartbeat event visible in Sentry — ingestion is not retaining events",
@@ -108,14 +127,20 @@ func (c *heartbeatChecker) Verify(ctx context.Context) error {
 
 	newest, err := newestHeartbeat(ctx, issues)
 	if err != nil {
-		return err
+		return HeartbeatObservation{}, err
 	}
+
+	// The observation is populated before the bound is judged, so a stale
+	// heartbeat still reports its lastSeen. That is deliberate: the published
+	// metric exists to carry the age that makes the alert fire, and withholding
+	// it exactly when the heartbeat is stale would blind the alert.
+	observation := HeartbeatObservation{Newest: newest}
 
 	age := c.cfg.CurrentDateTimeGetter.Now().Time().Sub(newest)
 	if age <= c.cfg.MaxAge {
-		return nil
+		return observation, nil
 	}
-	return errors.Wrapf(
+	return observation, errors.Wrapf(
 		ctx,
 		ErrHeartbeatMissing,
 		"newest heartbeat is %s old, past the %s limit — ingestion is not retaining events",

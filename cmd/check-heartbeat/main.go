@@ -31,6 +31,7 @@ import (
 	"github.com/bborbe/service"
 	libtime "github.com/bborbe/time"
 	"github.com/golang/glog"
+	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/bborbe/sentry-watcher/pkg"
 	"github.com/bborbe/sentry-watcher/pkg/factory"
@@ -80,7 +81,8 @@ func NewApplication() *Application {
 		CreateProducer: func(ctx context.Context, brokers libkafka.Brokers) (libkafka.SyncProducer, error) {
 			return libkafka.NewSyncProducerWithName(ctx, brokers, "sentry-check-heartbeat")
 		},
-		CurrentDateTime: libtime.NewCurrentDateTime(),
+		CreateHeartbeatMetrics: pkg.NewPushGatewayHeartbeatMetrics,
+		CurrentDateTime:        libtime.NewCurrentDateTime(),
 	}
 }
 
@@ -98,6 +100,12 @@ type Application struct {
 	HeartbeatQuery  string `required:"true"  arg:"heartbeat-query"   env:"HEARTBEAT_QUERY"   usage:"Search expression matching a heartbeat event (e.g. source:sentry-heartbeat)"`
 	HeartbeatMaxAge string `required:"false" arg:"heartbeat-max-age" env:"HEARTBEAT_MAX_AGE" usage:"How old the newest heartbeat may be and still count as present (Go duration, e.g. 6h)" default:"6h"`
 
+	// PushGatewayURL is required rather than defaulted, for the same reason
+	// TaskAssignee is: a check that silently stops publishing its reading is
+	// precisely the failure this metric exists to make visible, so a missing
+	// value must fail startup loudly instead of quietly disabling the alert.
+	PushGatewayURL string `required:"true" arg:"pushgateway-url" env:"PUSHGATEWAY_URL" usage:"Push gateway the heartbeat reading is published to (e.g. http://pushgateway.monitoring.svc.cluster.local:9090)"`
+
 	// TaskAssignee names whoever owns Sentry ingestion. It has no default: the
 	// poller's analyzer assignee would be wrong here — there is no issue to
 	// analyze, and a silently-wrong owner is worse than a startup failure.
@@ -111,9 +119,10 @@ type Application struct {
 	// (e.g. "develop" / "master"); independent of Stage.
 	TopicPrefix base.TopicPrefix `required:"false" arg:"topic-prefix" env:"TOPIC_PREFIX" usage:"Kafka topic prefix for CQRS topic construction"`
 
-	CreateChecker   CheckerFunc
-	CreateProducer  ProducerFunc
-	CurrentDateTime libtime.CurrentDateTimeGetter
+	CreateChecker          CheckerFunc
+	CreateProducer         ProducerFunc
+	CreateHeartbeatMetrics HeartbeatMetricsFunc
+	CurrentDateTime        libtime.CurrentDateTimeGetter
 }
 
 // CheckerFunc creates a HeartbeatChecker. Matches
@@ -132,6 +141,11 @@ type ProducerFunc func(
 	ctx context.Context,
 	brokers libkafka.Brokers,
 ) (libkafka.SyncProducer, error)
+
+// HeartbeatMetricsFunc creates the publisher for the check's reading. Matches
+// pkg.NewPushGatewayHeartbeatMetrics so tests can substitute a recorder that
+// captures what would have been pushed.
+type HeartbeatMetricsFunc func(url string) pkg.HeartbeatMetrics
 
 // Run performs one heartbeat check and returns.
 //
@@ -160,7 +174,9 @@ func (a *Application) Run(ctx context.Context, _ libsentry.Client) error {
 		maxAge,
 	)
 
-	verifyErr := checker.Verify(ctx)
+	observation, verifyErr := checker.Verify(ctx)
+	a.publishReading(ctx, observation)
+
 	if verifyErr == nil {
 		glog.V(2).Infof("heartbeat present maxAge=%s", maxAge)
 		return nil
@@ -173,6 +189,27 @@ func (a *Application) Run(ctx context.Context, _ libsentry.Client) error {
 		return err
 	}
 	return errors.Wrap(ctx, verifyErr, "heartbeat missing")
+}
+
+// publishReading pushes what the check saw to the gateway.
+//
+// It runs before the verdict is acted on, and on every path, because the alert
+// keys on the *age* of the newest heartbeat: a reading the verdict calls stale
+// is exactly the value Prometheus needs, and publishing only on success would
+// withhold the metric at the one moment it matters.
+//
+// A zero reading is passed through rather than filtered here — the publisher
+// decides what "unknown" means for the gateway, and keeping that rule in one
+// place is what stops the two callers drifting apart.
+//
+// Publishing never fails the check. A gateway that is down costs a metric, not
+// a verdict, and turning that into a failed run would report the detector as
+// broken at the moment it is working.
+func (a *Application) publishReading(ctx context.Context, observation pkg.HeartbeatObservation) {
+	if a.CreateHeartbeatMetrics == nil {
+		return
+	}
+	a.CreateHeartbeatMetrics(a.PushGatewayURL).PublishLastSeen(ctx, observation.Newest)
 }
 
 // alert files the single alert task for the current UTC day.
@@ -203,7 +240,14 @@ func (a *Application) alert(ctx context.Context, maxAge time.Duration) error {
 	}
 
 	sender := factory.CreateKafkaSender(syncProducer, a.TopicPrefix, a.TargetVault)
-	if !pkg.NewTaskPublisher(sender, pkg.NewMetrics(nil)).PublishCreate(ctx, cmd) {
+	// A fresh registry rather than nil, matching cmd/run-once. Passing nil
+	// registers on the *default* registry, which panics on a second
+	// registration of the same series — unreachable for a one-shot binary, but
+	// it makes the alert path single-use per process, which is a trap for any
+	// caller that drives Run twice. This binary serves no /metrics endpoint, so
+	// nothing is lost by not using the default registry.
+	if !pkg.NewTaskPublisher(sender, pkg.NewMetrics(prometheus.NewRegistry())).
+		PublishCreate(ctx, cmd) {
 		return errors.Errorf(ctx, "publish heartbeat alert task failed")
 	}
 	glog.V(2).Infof("heartbeat alert published taskID=%s", string(cmd.TaskIdentifier))
