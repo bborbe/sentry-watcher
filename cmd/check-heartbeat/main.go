@@ -144,8 +144,10 @@ type ProducerFunc func(
 
 // HeartbeatMetricsFunc creates the publisher for the check's reading. Matches
 // pkg.NewPushGatewayHeartbeatMetrics so tests can substitute a recorder that
-// captures what would have been pushed.
-type HeartbeatMetricsFunc func(url string) pkg.HeartbeatMetrics
+// captures what would have been pushed. Production passes a nil client — the
+// publisher supplies its own bounded one, so a stuck gateway cannot block the
+// run before the alert is filed.
+type HeartbeatMetricsFunc func(url string, client *http.Client) pkg.HeartbeatMetrics
 
 // Run performs one heartbeat check and returns.
 //
@@ -209,7 +211,7 @@ func (a *Application) publishReading(ctx context.Context, observation pkg.Heartb
 	if a.CreateHeartbeatMetrics == nil {
 		return
 	}
-	a.CreateHeartbeatMetrics(a.PushGatewayURL).PublishLastSeen(ctx, observation.Newest)
+	a.CreateHeartbeatMetrics(a.PushGatewayURL, nil).PublishLastSeen(ctx, observation.Newest)
 }
 
 // alert files the single alert task for the current UTC day.

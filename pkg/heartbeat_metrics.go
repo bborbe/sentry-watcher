@@ -6,6 +6,7 @@ package pkg
 
 import (
 	"context"
+	"net/http"
 	"time"
 
 	"github.com/golang/glog"
@@ -47,9 +48,25 @@ const (
 	heartbeatMetricName      = "last_seen_timestamp_seconds"
 )
 
+// heartbeatPushTimeout bounds one push to the gateway when no client is given.
+//
+// It exists because the push sits on the alert's critical path: PublishLastSeen
+// runs before the verdict is acted on, so a gateway that accepts the connection
+// and never answers would block the run and the alert task would never be
+// filed. That is the default behaviour, not a corner case — push.New installs a
+// bare &http.Client{} with no timeout at all. Ten seconds stays well inside the
+// CronJob's activeDeadlineSeconds (120s) while still absorbing a slow gateway.
+const heartbeatPushTimeout = 10 * time.Second
+
 // NewPushGatewayHeartbeatMetrics returns a HeartbeatMetrics that pushes to the
 // push gateway at url, under the heartbeatPushJob group.
-func NewPushGatewayHeartbeatMetrics(url string) HeartbeatMetrics {
+//
+// A nil client gets one bounded by heartbeatPushTimeout. Pass a client only to
+// override that bound, which the tests do so the hang case stays fast.
+func NewPushGatewayHeartbeatMetrics(url string, client *http.Client) HeartbeatMetrics {
+	if client == nil {
+		client = &http.Client{Timeout: heartbeatPushTimeout}
+	}
 	gauge := prometheus.NewGauge(prometheus.GaugeOpts{
 		Namespace: metricNamespace,
 		Subsystem: heartbeatMetricSubsystem,
@@ -61,7 +78,7 @@ func NewPushGatewayHeartbeatMetrics(url string) HeartbeatMetrics {
 	})
 	return &pushGatewayHeartbeatMetrics{
 		gauge:  gauge,
-		pusher: push.New(url, heartbeatPushJob).Collector(gauge),
+		pusher: push.New(url, heartbeatPushJob).Client(client).Collector(gauge),
 	}
 }
 

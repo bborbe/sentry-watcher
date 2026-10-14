@@ -82,7 +82,7 @@ var _ = Describe("Run", func() {
 				return checker
 			},
 			PushGatewayURL: "http://pushgateway.monitoring.svc.cluster.local:9090",
-			CreateHeartbeatMetrics: func(_ string) pkg.HeartbeatMetrics {
+			CreateHeartbeatMetrics: func(_ string, _ *http.Client) pkg.HeartbeatMetrics {
 				return heartbeatMetrics
 			},
 			CurrentDateTime: libtime.CurrentDateTimeGetterFunc(func() libtime.DateTime {

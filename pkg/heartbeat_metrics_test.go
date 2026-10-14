@@ -68,7 +68,7 @@ var _ = Describe("pkg.NewPushGatewayHeartbeatMetrics", func() {
 	It("pushes the lastSeen as an absolute Unix timestamp under the heartbeat group", func() {
 		newest := time.Unix(1792002166, 0)
 
-		pkg.NewPushGatewayHeartbeatMetrics(server.URL).PublishLastSeen(ctx, newest)
+		pkg.NewPushGatewayHeartbeatMetrics(server.URL, nil).PublishLastSeen(ctx, newest)
 
 		Expect(requests).To(HaveLen(1))
 		Expect(requests[0].path).To(ContainSubstring("/metrics/job/sentry_heartbeat"))
@@ -82,7 +82,7 @@ var _ = Describe("pkg.NewPushGatewayHeartbeatMetrics", func() {
 	// holding the previous value instead lets the age keep growing, which is the
 	// honest signal for "this check can no longer verify ingestion".
 	It("pushes nothing when the reading is unknown", func() {
-		pkg.NewPushGatewayHeartbeatMetrics(server.URL).PublishLastSeen(ctx, time.Time{})
+		pkg.NewPushGatewayHeartbeatMetrics(server.URL, nil).PublishLastSeen(ctx, time.Time{})
 
 		Expect(requests).To(BeEmpty())
 	})
@@ -99,15 +99,43 @@ var _ = Describe("pkg.NewPushGatewayHeartbeatMetrics", func() {
 		defer failing.Close()
 
 		Expect(func() {
-			pkg.NewPushGatewayHeartbeatMetrics(failing.URL).
+			pkg.NewPushGatewayHeartbeatMetrics(failing.URL, nil).
 				PublishLastSeen(ctx, time.Unix(1792002166, 0))
 		}).NotTo(Panic())
+	})
+
+	// The reason the publisher supplies its own client rather than taking the
+	// push package's default. The push runs *before* the verdict is acted on, so
+	// a gateway that accepts the connection and never answers would block the
+	// run past the point where the alert task is filed — turning a metrics
+	// outage into a silent detector outage, which is the failure this whole
+	// detector exists to catch. push.New installs a bare &http.Client{} with no
+	// timeout, so unbounded is the default unless the publisher bounds it.
+	It("gives up instead of hanging when the gateway never answers", func() {
+		stuck := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			time.Sleep(2 * time.Second)
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer stuck.Close()
+
+		metrics := pkg.NewPushGatewayHeartbeatMetrics(
+			stuck.URL,
+			&http.Client{Timeout: 100 * time.Millisecond},
+		)
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			metrics.PublishLastSeen(ctx, time.Unix(1792002166, 0))
+		}()
+
+		Eventually(done).WithTimeout(time.Second).Should(BeClosed())
 	})
 
 	// Successive pushes must replace the value rather than accumulate groups:
 	// the series is the newest heartbeat, not a history of readings.
 	It("replaces the value on a later push to the same group", func() {
-		metrics := pkg.NewPushGatewayHeartbeatMetrics(server.URL)
+		metrics := pkg.NewPushGatewayHeartbeatMetrics(server.URL, nil)
 
 		metrics.PublishLastSeen(ctx, time.Unix(1792000000, 0))
 		metrics.PublishLastSeen(ctx, time.Unix(1792002166, 0))
