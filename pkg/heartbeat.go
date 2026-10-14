@@ -28,7 +28,7 @@ import (
 // API is unreachable. The two are deliberately separable.
 var ErrHeartbeatMissing = stderrors.New("heartbeat missing")
 
-// HeartbeatChecker verifies that Sentry is actually retaining events.
+// HeartbeatChecker verifies that the heartbeat is still arriving.
 //
 // A quiet fleet and dead ingestion both produce "no new issues", so counting
 // issues cannot tell them apart. The heartbeat resolves that ambiguity: a
@@ -51,8 +51,8 @@ var ErrHeartbeatMissing = stderrors.New("heartbeat missing")
 // returns heartbeat events rather than the fleet's real alerts.
 type HeartbeatChecker interface {
 	// Verify returns nil when a heartbeat event newer than MaxAge is visible.
-	// A non-nil error means none is — ingestion is not retaining events, or
-	// the heartbeat emitter has stopped.
+	// A non-nil error means none is; which candidate cause applies is not
+	// established here.
 	Verify(ctx context.Context) error
 }
 
@@ -102,7 +102,7 @@ func (c *heartbeatChecker) Verify(ctx context.Context) error {
 		return errors.Wrap(
 			ctx,
 			ErrHeartbeatMissing,
-			"no heartbeat event visible in Sentry — ingestion is not retaining events",
+			"no heartbeat event visible in Sentry",
 		)
 	}
 
@@ -118,7 +118,7 @@ func (c *heartbeatChecker) Verify(ctx context.Context) error {
 	return errors.Wrapf(
 		ctx,
 		ErrHeartbeatMissing,
-		"newest heartbeat is %s old, past the %s limit — ingestion is not retaining events",
+		"newest heartbeat is %s old, past the %s limit",
 		age.Truncate(time.Second),
 		c.cfg.MaxAge,
 	)

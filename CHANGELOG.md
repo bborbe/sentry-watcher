@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-- fix: the zero-events heartbeat escalation states the missing-heartbeat observation instead of asserting that Sentry stopped retaining events. The assertion was carried in three places — the title, the body's H1, and the body's prose — so correcting the title alone would have left the rendered escalation leading with a cause the check never established. It was wrong for 26 consecutive days while retention worked. The rendered-template test now asserts all three sites, so a partial fix cannot pass.
+- fix: the zero-events heartbeat escalation states the missing-heartbeat observation instead of asserting that Sentry stopped retaining events. The assertion was carried in three places — the title, the body's H1, and the body's prose — so correcting the title alone would have left the rendered escalation leading with a cause the check never established. It was wrong for 26 consecutive days while retention worked. The checker's own failure message carried the same claim and now states the observation too. Both the rendered-template test and the checker's error assertion now pin the absence, so a partial fix cannot pass.
 
 ## v0.3.5
 
