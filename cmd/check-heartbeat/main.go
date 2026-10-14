@@ -55,12 +55,13 @@ func main() {
 
 // ExcludeHeartbeatMissing keeps the expected alarm out of Sentry.
 //
-// The heartbeat-missing error is the detector *working*: it is delivered to a
-// human by the vault task and to the cluster by the failed run. Reporting it a
-// third time spends the org's ingest quota on a condition that is already known
-// — through the same proxy this check exists to watch — and files an error event
-// the analyzer pipeline can pick up as noise. Unexpected failures ("the check
-// could not run") are deliberately still reported: nobody else carries those.
+// The heartbeat-missing error is the detector *working*: it is carried by the
+// age metric the Prometheus alert fires on, and by the failed run. Reporting it
+// a third time spends the org's ingest quota on a condition that is already
+// known — through the same proxy this check exists to watch — and files an error
+// event the analyzer pipeline can pick up as noise. Unexpected failures ("the
+// check could not run") are deliberately still reported: nobody else carries
+// those.
 //
 // The DSN stays required. Dropping it from the deployment instead would fail
 // argument validation and the watchdog would stop watching silently — the exact
