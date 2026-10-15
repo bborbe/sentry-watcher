@@ -88,17 +88,24 @@ type heartbeatSender struct {
 func (s *heartbeatSender) Send(ctx context.Context) error {
 	endpoint, err := ingestEndpoint(ctx, s.cfg)
 	if err != nil {
+		// The cycle ended before any POST, so it belongs with the cycles that
+		// never reached the proxy. Recording it here rather than only at the
+		// POST is what keeps the pair from reporting a stale "posted" for a run
+		// that never got that far.
+		s.recordNotReachedProxy(ctx)
 		return err
 	}
 	now := s.cfg.CurrentDateTimeGetter.Now().Time().UTC().Format(time.RFC3339)
 	body, eventID, err := heartbeatEnvelope(ctx, s.cfg.DSN, now)
 	if err != nil {
+		s.recordNotReachedProxy(ctx)
 		return err
 	}
 	req, err := http.NewRequestWithContext(
 		ctx, http.MethodPost, endpoint, bytes.NewReader(body),
 	)
 	if err != nil {
+		s.recordNotReachedProxy(ctx)
 		return errors.Wrap(ctx, err, "build heartbeat request")
 	}
 	req.Header.Set("Content-Type", "application/x-sentry-envelope")

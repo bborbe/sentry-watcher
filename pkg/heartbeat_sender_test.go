@@ -184,6 +184,46 @@ var _ = Describe("pkg.HeartbeatSender.Send", func() {
 		Expect(recorder.PublishPostedCallCount()).To(Equal(0))
 	})
 
+	// A cycle that dies before the POST must land in the never-reached bucket
+	// too. Recording it only at the POST would leave the pushed pair reporting
+	// the *previous* cycle's posted=1 for a run that never got that far — the
+	// pair's own question answered wrongly, which is worse than no answer.
+	It("records the never-reached outcome when the endpoint cannot be resolved", func() {
+		recorder := &mocks.HeartbeatEmitterMetrics{}
+		sender := pkg.NewHeartbeatSender(pkg.HeartbeatSenderConfig{
+			// No userinfo, so ingestEndpoint rejects the DSN before any POST.
+			DSN:        "https://o12345.ingest.sentry.io/6789",
+			HTTPClient: server.Client(),
+			Metrics:    recorder,
+		})
+
+		Expect(sender.Send(ctx)).NotTo(Succeed())
+
+		Expect(recorder.PublishNotReachedProxyCallCount()).To(Equal(1))
+		Expect(recorder.PublishPostedCallCount()).To(Equal(0))
+	})
+
+	// The other pre-POST exit: the endpoint resolved and the envelope was built,
+	// but the request itself could not be constructed. Nothing left the process,
+	// so it belongs with the cycles that never reached the proxy rather than
+	// being left off the pair entirely.
+	It("records the never-reached outcome when the request cannot be built", func() {
+		recorder := &mocks.HeartbeatEmitterMetrics{}
+		sender := pkg.NewHeartbeatSender(pkg.HeartbeatSenderConfig{
+			DSN: dsn,
+			// A control byte survives ingestEndpoint, which parses only the DSN,
+			// but makes http.NewRequestWithContext fail to parse the endpoint.
+			ProxyURL:   "http://127.0.0.1:1234/\x7f",
+			HTTPClient: server.Client(),
+			Metrics:    recorder,
+		})
+
+		Expect(sender.Send(ctx)).NotTo(Succeed())
+
+		Expect(recorder.PublishNotReachedProxyCallCount()).To(Equal(1))
+		Expect(recorder.PublishPostedCallCount()).To(Equal(0))
+	})
+
 	It("rejects a DSN missing its key, host, or project id", func() {
 		sender := pkg.NewHeartbeatSender(pkg.HeartbeatSenderConfig{
 			DSN:        "https://o12345.ingest.sentry.io/6789",

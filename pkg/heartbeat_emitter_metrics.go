@@ -145,13 +145,13 @@ func NewPushGatewayHeartbeatEmitterMetrics(
 			"proxy's reachability is broken — never that Sentry rejected the envelope, which is " +
 			"what sentry_watcher_heartbeat_emitter_posted records.",
 	})
-	// Both gauges are pre-initialised with .Add(0). A pushgateway series that
-	// has never been pushed does not exist, so an alert reading it sees no data
-	// rather than a zero and stays silent on the very case it is for. Writing
-	// the zero makes each branch's absence explicit: posted=0 then reads as
-	// "this cycle did not post" rather than "nothing ever reported".
-	posted.Add(0)
-	notReachedProxy.Add(0)
+	// Both gauges are attached to the pusher below, so both are gathered and
+	// pushed on every run — including a run where neither branch set a value.
+	// That is the mechanism that keeps a reader from seeing *no data* rather
+	// than a zero on the very case the pair exists for, and it is worth stating
+	// precisely: a pushed series exists because its collector was gathered, not
+	// because a value was written to it. An .Add(0) here would be a no-op on a
+	// fresh gauge and would credit the wrong line with the behaviour.
 	return &pushGatewayHeartbeatEmitterMetrics{
 		posted:          posted,
 		notReachedProxy: notReachedProxy,
