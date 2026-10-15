@@ -6,6 +6,8 @@ package main_test
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -15,6 +17,8 @@ import (
 	"github.com/onsi/gomega/gexec"
 
 	heartbeat "github.com/bborbe/sentry-watcher/cmd/heartbeat"
+	"github.com/bborbe/sentry-watcher/mocks"
+	"github.com/bborbe/sentry-watcher/pkg"
 )
 
 var _ = Describe("Main", func() {
@@ -38,6 +42,35 @@ var _ = Describe("Run", func() {
 
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("dsn is missing"))
+	})
+
+	// Wiring, not behaviour: the publisher's own push is covered in pkg. What
+	// this catches is the failure mode where the publisher is built but never
+	// handed to the sender — the cycle would then be instrumented on paper and
+	// silent in the cluster, which is exactly how the 2026-10-10/11 evidence was
+	// lost.
+	It("publishes the cycle outcome through the injected publisher", func() {
+		sentry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer sentry.Close()
+
+		recorder := &mocks.HeartbeatEmitterMetrics{}
+		app := &heartbeat.Application{
+			SentryDSN:   "https://abc123@o12345.ingest.sentry.io/6789",
+			SentryProxy: sentry.URL,
+			CreateHeartbeatEmitterMetrics: func(
+				string,
+				*http.Client,
+			) pkg.HeartbeatEmitterMetrics {
+				return recorder
+			},
+		}
+
+		Expect(app.Run(context.Background(), nil)).To(Succeed())
+
+		Expect(recorder.PublishPostedCallCount()).To(Equal(1))
+		Expect(recorder.PublishNotReachedProxyCallCount()).To(Equal(0))
 	})
 })
 

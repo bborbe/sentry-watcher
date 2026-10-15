@@ -15,6 +15,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/bborbe/sentry-watcher/mocks"
 	"github.com/bborbe/sentry-watcher/pkg"
 )
 
@@ -123,6 +124,104 @@ var _ = Describe("pkg.HeartbeatSender.Send", func() {
 
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("429"))
+	})
+
+	// The outcome has to outlive the pod, so it is recorded at the boundary the
+	// POST crosses rather than reconstructed from a log line later.
+	It("records the posted outcome when the proxy answers", func() {
+		recorder := &mocks.HeartbeatEmitterMetrics{}
+		sender := pkg.NewHeartbeatSender(pkg.HeartbeatSenderConfig{
+			DSN:        dsn,
+			ProxyURL:   server.URL,
+			HTTPClient: server.Client(),
+			Metrics:    recorder,
+		})
+
+		Expect(sender.Send(ctx)).To(Succeed())
+
+		Expect(recorder.PublishPostedCallCount()).To(Equal(1))
+		Expect(recorder.PublishNotReachedProxyCallCount()).To(Equal(0))
+	})
+
+	// A rejected envelope *did* reach the proxy, so it is not the same fault as
+	// a cycle that never got there. Recording it as never-reached would point
+	// the next reader at the emitter's transport instead of at whatever the
+	// proxy refused — the distinction this pair exists to preserve.
+	It("records a rejected envelope as posted, not as never-reached", func() {
+		status = http.StatusTooManyRequests
+		recorder := &mocks.HeartbeatEmitterMetrics{}
+		sender := pkg.NewHeartbeatSender(pkg.HeartbeatSenderConfig{
+			DSN:        dsn,
+			ProxyURL:   server.URL,
+			HTTPClient: server.Client(),
+			Metrics:    recorder,
+		})
+
+		Expect(sender.Send(ctx)).NotTo(Succeed())
+
+		Expect(recorder.PublishPostedCallCount()).To(Equal(1))
+		Expect(recorder.PublishNotReachedProxyCallCount()).To(Equal(0))
+	})
+
+	// The 2026-10-10 case: the proxy log showed no envelope POST at either
+	// failed hour, so the cycle started and never arrived. That is this branch.
+	It("records the never-reached outcome when the POST produces no response", func() {
+		dead := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		deadURL := dead.URL
+		dead.Close()
+
+		recorder := &mocks.HeartbeatEmitterMetrics{}
+		sender := pkg.NewHeartbeatSender(pkg.HeartbeatSenderConfig{
+			DSN:        dsn,
+			ProxyURL:   deadURL,
+			HTTPClient: server.Client(),
+			Metrics:    recorder,
+		})
+
+		Expect(sender.Send(ctx)).NotTo(Succeed())
+
+		Expect(recorder.PublishNotReachedProxyCallCount()).To(Equal(1))
+		Expect(recorder.PublishPostedCallCount()).To(Equal(0))
+	})
+
+	// A cycle that dies before the POST must land in the never-reached bucket
+	// too. Recording it only at the POST would leave the pushed pair reporting
+	// the *previous* cycle's posted=1 for a run that never got that far — the
+	// pair's own question answered wrongly, which is worse than no answer.
+	It("records the never-reached outcome when the endpoint cannot be resolved", func() {
+		recorder := &mocks.HeartbeatEmitterMetrics{}
+		sender := pkg.NewHeartbeatSender(pkg.HeartbeatSenderConfig{
+			// No userinfo, so ingestEndpoint rejects the DSN before any POST.
+			DSN:        "https://o12345.ingest.sentry.io/6789",
+			HTTPClient: server.Client(),
+			Metrics:    recorder,
+		})
+
+		Expect(sender.Send(ctx)).NotTo(Succeed())
+
+		Expect(recorder.PublishNotReachedProxyCallCount()).To(Equal(1))
+		Expect(recorder.PublishPostedCallCount()).To(Equal(0))
+	})
+
+	// The other pre-POST exit: the endpoint resolved and the envelope was built,
+	// but the request itself could not be constructed. Nothing left the process,
+	// so it belongs with the cycles that never reached the proxy rather than
+	// being left off the pair entirely.
+	It("records the never-reached outcome when the request cannot be built", func() {
+		recorder := &mocks.HeartbeatEmitterMetrics{}
+		sender := pkg.NewHeartbeatSender(pkg.HeartbeatSenderConfig{
+			DSN: dsn,
+			// A control byte survives ingestEndpoint, which parses only the DSN,
+			// but makes http.NewRequestWithContext fail to parse the endpoint.
+			ProxyURL:   "http://127.0.0.1:1234/\x7f",
+			HTTPClient: server.Client(),
+			Metrics:    recorder,
+		})
+
+		Expect(sender.Send(ctx)).NotTo(Succeed())
+
+		Expect(recorder.PublishNotReachedProxyCallCount()).To(Equal(1))
+		Expect(recorder.PublishPostedCallCount()).To(Equal(0))
 	})
 
 	It("rejects a DSN missing its key, host, or project id", func() {
