@@ -18,6 +18,7 @@ import (
 
 	"github.com/bborbe/errors"
 	libtime "github.com/bborbe/time"
+	"github.com/golang/glog"
 )
 
 // HeartbeatTag is the tag the emitter sets on its synthetic event and the
@@ -57,9 +58,16 @@ type HeartbeatSenderConfig struct {
 	ProxyURL string
 	// HTTPClient is the client used for the POST; nil → a 30s-timeout client.
 	HTTPClient *http.Client
-	// CurrentDateTimeGetter supplies the event timestamp (go-time/no-time-now-direct);
+	// CurrentDateTimeGetter supplies the event timestamp and the elapsed-time
+	// reading on the audit line (go-time/no-time-now-direct);
 	// nil → libtime.NewCurrentDateTime().
 	CurrentDateTimeGetter libtime.CurrentDateTimeGetter
+	// Metrics records the POST's outcome so it outlives the pod, which the log
+	// line cannot: the failed emitter pods of 2026-10-10/11 were garbage-
+	// collected within a day and their logs with them. nil → the outcome is
+	// logged but not published, so the sender stays constructible without a
+	// gateway.
+	Metrics HeartbeatEmitterMetrics
 }
 
 // NewHeartbeatSender returns a sender for the given config.
@@ -94,16 +102,67 @@ func (s *heartbeatSender) Send(ctx context.Context) error {
 		return errors.Wrap(ctx, err, "build heartbeat request")
 	}
 	req.Header.Set("Content-Type", "application/x-sentry-envelope")
+
+	// The POST is the one call that crosses the process boundary, so it gets
+	// exactly one audit line — the success branch or one of the two failure
+	// branches, never two for the same call (go-logging/external-call-logs-
+	// response, whose carve-out from no-log-and-return-error this is). The line
+	// is at V0, not V(2): the V(2) line it replaces was suppressed at the
+	// default verbosity, so a successful cycle left no trace at all in
+	// `kubectl logs`.
+	start := s.cfg.CurrentDateTimeGetter.Now().Time()
 	resp, err := s.cfg.HTTPClient.Do(req)
+	elapsedMS := s.cfg.CurrentDateTimeGetter.Now().Time().Sub(start).Milliseconds()
 	if err != nil {
+		glog.Warningf(
+			"heartbeat not reached proxy event_id=%s elapsed_ms=%d err=%v",
+			eventID,
+			elapsedMS,
+			err,
+		)
+		s.recordNotReachedProxy(ctx)
 		return errors.Wrapf(ctx, err, "post heartbeat %s", eventID)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, resp.Body)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return errors.Errorf(ctx, "post heartbeat %s: status %d", eventID, resp.StatusCode)
+		statusErr := errors.Errorf(ctx, "post heartbeat %s: status %d", eventID, resp.StatusCode)
+		glog.Warningf(
+			"heartbeat posted event_id=%s status=%d elapsed_ms=%d err=%v",
+			eventID,
+			resp.StatusCode,
+			elapsedMS,
+			statusErr,
+		)
+		s.recordPosted(ctx)
+		return statusErr
 	}
+	glog.Infof(
+		"heartbeat posted event_id=%s status=%d elapsed_ms=%d",
+		eventID,
+		resp.StatusCode,
+		elapsedMS,
+	)
+	s.recordPosted(ctx)
 	return nil
+}
+
+// recordPosted advances the "reached the proxy" counter. A nil recorder is
+// tolerated so the sender stays constructible without a gateway.
+func (s *heartbeatSender) recordPosted(ctx context.Context) {
+	if s.cfg.Metrics == nil {
+		return
+	}
+	s.cfg.Metrics.PublishPosted(ctx)
+}
+
+// recordNotReachedProxy advances the "never reached the proxy" counter, the
+// outcome a rejected envelope must not be confused with.
+func (s *heartbeatSender) recordNotReachedProxy(ctx context.Context) {
+	if s.cfg.Metrics == nil {
+		return
+	}
+	s.cfg.Metrics.PublishNotReachedProxy(ctx)
 }
 
 // ingestEndpoint resolves the envelope URL, routing through the proxy when one
