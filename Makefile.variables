@@ -1,1 +1,6 @@
-export ROOTDIR ?= $(shell git rev-parse --show-toplevel)
+# Falls back to the working directory when git cannot answer: the dark-factory
+# build container masks .git (workflow: worktree), so `git rev-parse` returns
+# empty there and `include $(ROOTDIR)/tools.env` in Makefile.precommit would
+# resolve to /tools.env and abort make at parse time. Locally git answers with
+# the same directory, so this is a no-op.
+export ROOTDIR ?= $(shell git rev-parse --show-toplevel 2>/dev/null || pwd)
