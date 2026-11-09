@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - feat(build): add a `BUILD_TARGET` cluster arm so the image can be built as a BuildKit Job instead of only on a Mac; `make build` with no `BUILD_TARGET` is unchanged
 
+## v0.6.5
+
+- chore: restate the do-not-merge contract exemption sentence in the required check
+
 ## v0.6.4
 
 - chore(dark-factory): worktree workflow with PR delivery
