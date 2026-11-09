@@ -89,7 +89,7 @@ This repo carries two build guards the reference implementation did not. `build:
 - `grep -c 'go build' Dockerfile` — returns `3`
 - `test -s .dark-factory.yaml && test -s docs/dod.md` — exits 0
 - `make -n build VERSION=probe` — the default recipe still emits the unchanged `docker build` arguments, including all three `--build-arg` lines
-- `make -n build BUILD_TARGET=sun REF=<sha> VERSION=probe` — the cluster recipe names `hack/build-cluster.sh`, contains no `refusing to build`, and contains no `go mod vendor`
+- `make -n build BUILD_TARGET=sun REF=<sha> VERSION=probe` — the cluster recipe names `hack/build-cluster.sh`, contains no `refusing to build`, and contains no `go mod vendor`. **And the rendered recipe carries `REF="<sha>"` — the exact SHA passed on the command line**, not the default: a Makefile that reads `$(BUILD_REF)` while the documented interface is `REF=` renders the current HEAD and silently ignores the operator's SHA.
 - `make -n build BUILD_TARGET=sun REF=<sha> VERSION=v0.6.4-arm_test` — renders the Job name `build-v0.6.4-arm-test`
 - `make -n upload BUILD_TARGET=sun VERSION=probe` — contains no `docker push`
 - `make -n clean BUILD_TARGET=sun VERSION=probe` — contains no `docker rmi`, `docker builder prune`, `docker image prune` or `rm -rf vendor`

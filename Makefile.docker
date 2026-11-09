@@ -7,8 +7,10 @@ IMAGE ?= $(DOCKER_REGISTRY)/bborbe/$(SERVICE)
 BUILD_TARGET ?= local
 
 # Cluster arm inputs. REF must be a full 40-character SHA: the Job clones it
-# shallowly, and a short SHA fails there with `couldn't find remote ref`.
-BUILD_REF ?= $(shell git rev-parse HEAD)
+# shallowly, and a short SHA fails there with `couldn't find remote ref`. The
+# variable is named REF, not BUILD_REF, because `make build ... REF=<sha>` is
+# the interface the README and the spec document.
+REF ?= $(shell git rev-parse HEAD)
 BUILD_DOCKERFILE ?= Dockerfile
 BUILD_NAMESPACE ?= build
 BUILD_REPO_URL ?= https://github.com/bborbe/sentry-watcher.git
@@ -88,7 +90,7 @@ build:
 	BUILD_TARGET="$(BUILD_TARGET)" \
 	NAMESPACE="$(BUILD_NAMESPACE)" \
 	REPO_URL="$(BUILD_REPO_URL)" \
-	REF="$(BUILD_REF)" \
+	REF="$(REF)" \
 	TAG="$(VERSION)" \
 	DOCKERFILE="$(BUILD_DOCKERFILE)" \
 	IMAGE="$(IMAGE)" \
