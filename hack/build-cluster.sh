@@ -64,6 +64,12 @@ printf '%s' "${DOCKER_REGISTRY}" | grep -qE '^[A-Za-z0-9._/:-]+$' ||
 	die "DOCKER_REGISTRY '${DOCKER_REGISTRY}' contains characters outside [A-Za-z0-9._/:-]"
 printf '%s' "${TIMEOUT}" | grep -qE '^[0-9]+$' ||
 	die "TIMEOUT '${TIMEOUT}' is not a number of seconds"
+
+# The Job's own activeDeadlineSeconds has to outlast this script's wait, or the
+# Job is killed first and a genuine timeout arrives as a generic `job failed` —
+# making the timeout branch below unreachable. The script gives up at TIMEOUT+120
+# and the Job dies at TIMEOUT+300, so the script always sees the timeout first.
+JOB_DEADLINE=$(( 10#${TIMEOUT} + 300 ))
 printf '%s' "${NAMESPACE}" | grep -qE '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$' ||
 	die "NAMESPACE '${NAMESPACE}' is not a valid Kubernetes namespace name"
 case "${PUSH}" in
@@ -135,7 +141,7 @@ sed \
 	-e "s|__IMAGE__|${IMAGE}|g" \
 	-e "s|__PUSH__|${PUSH}|g" \
 	-e "s|__PUSH_SECRET__|${PUSH_SECRET}|g" \
-	-e "s|__DEADLINE_SECONDS__|${TIMEOUT}|g" \
+	-e "s|__DEADLINE_SECONDS__|${JOB_DEADLINE}|g" \
 	-e "s|__SOURCE_DATE_EPOCH__|${SOURCE_DATE_EPOCH}|g" \
 	-e "s|__DOCKER_REGISTRY__|${DOCKER_REGISTRY}|g" \
 	-e "s|__NAMESPACE__|${NAMESPACE}|g" \
