@@ -1,6 +1,7 @@
 ---
-status: draft
-created: 2026-11-09
+status: approved
+approved: "2026-11-09T16:11:01Z"
+branch: dark-factory/cluster-build-arm
 ---
 
 ## Summary
