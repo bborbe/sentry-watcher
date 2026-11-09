@@ -46,6 +46,10 @@ require PUSH_SECRET
 # outside the whitelist is rejected, never escaped.
 printf '%s' "${REF}" | grep -qE '^[A-Za-z0-9._/-]+$' ||
 	die "REF '${REF}' contains characters outside [A-Za-z0-9._/-]"
+# The init container clones REF shallowly, so a short SHA fails there with
+# `couldn't find remote ref`. Reject it here, before anything is rendered.
+[ "${#REF}" -eq 40 ] ||
+	die "REF '${REF}' is ${#REF} characters; a full 40-character commit SHA is required"
 printf '%s' "${TAG}" | grep -qE '^[A-Za-z0-9._-]+$' ||
 	die "TAG '${TAG}' contains characters outside [A-Za-z0-9._-]"
 printf '%s' "${IMAGE}" | grep -qE '^[A-Za-z0-9._/:-]+$' ||
@@ -110,6 +114,14 @@ JOB_NAME="${JOB_NAME:-build-$(printf '%s' "${TAG}" | tr '[:upper:]' '[:lower:]' 
 JOB_NAME="${JOB_NAME:0:63}"
 # Truncation can leave a trailing '.' or '-', which is not a valid DNS-1123 name.
 JOB_NAME="$(printf '%s' "${JOB_NAME}" | sed -e 's/[-.]*$//')"
+# JOB_NAME is the one substituted value that can arrive from outside this
+# script (the Makefile renders it), so it gets the same whitelist and newline
+# rejection as every other value before it is spliced into the manifest.
+case "${JOB_NAME}" in
+*$'\n'*) die "JOB_NAME contains a newline, which is not allowed" ;;
+esac
+printf '%s' "${JOB_NAME}" | grep -qE '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$' ||
+	die "JOB_NAME '${JOB_NAME}' is not a valid DNS-1123 name"
 
 rendered="$(mktemp)"
 trap 'rm -f "${rendered}"' EXIT

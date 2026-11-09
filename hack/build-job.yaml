@@ -28,7 +28,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: __JOB_NAME__
-  namespace: build
+  namespace: __NAMESPACE__
   labels:
     app.kubernetes.io/name: image-build
     app.kubernetes.io/component: build
@@ -118,7 +118,7 @@ spec:
                 --opt build-arg:BUILD_GIT_VERSION="$(cat /meta/git-version)" \
                 --opt build-arg:BUILD_GIT_COMMIT="$(cat /meta/git-commit)" \
                 --opt build-arg:BUILD_DATE="$(cat /meta/source-date-iso)" \
-                --opt build-arg:DOCKER_REGISTRY=docker.io \
+                --opt build-arg:DOCKER_REGISTRY=__DOCKER_REGISTRY__ \
                 --metadata-file /meta/metadata.json \
                 --output type=image,name=__IMAGE__:__TAG__,push=__PUSH__,rewrite-timestamp=true
               cat /meta/metadata.json
@@ -130,8 +130,9 @@ spec:
           # Unconfined here is deliberate and is NOT an oversight left over from
           # the init containers above: rootless buildkitd with
           # --oci-worker-no-process-sandbox needs both profiles relaxed to run
-          # nested containers. Tightening them breaks every build; the
-          # unprivileged uid and the dropped capabilities are the boundary.
+          # nested containers. Tightening them breaks every build. The boundary
+          # here is the unprivileged uid: this container drops no capabilities,
+          # because rootless buildkitd needs its default set.
           securityContext:
             runAsUser: 1000
             runAsGroup: 1000
