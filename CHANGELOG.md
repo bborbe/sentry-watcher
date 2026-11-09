@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## v0.6.4
+
+- chore(dark-factory): worktree workflow with PR delivery
+
 ## v0.6.3
 
 - chore: update github.com/bborbe/agent to v0.138.0, github.com/bborbe/cron to v1.9.8, github.com/bborbe/errors to v1.6.6, github.com/bborbe/kafka to v1.29.11, github.com/bborbe/log to v1.7.6, github.com/bborbe/run to v1.11.10, github.com/bborbe/sentry to v1.10.7, github.com/bborbe/time to v1.27.25, github.com/onsi/ginkgo/v2 to v2.34.0
