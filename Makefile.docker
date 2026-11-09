@@ -99,7 +99,7 @@ build:
 	TIMEOUT="$(BUILD_TIMEOUT)" \
 	DOCKER_REGISTRY="$(DOCKER_REGISTRY)" \
 	JOB_NAME="$(JOB_NAME)" \
-	./hack/build-cluster.sh
+	hack/build-cluster.sh
 
 endif
 
