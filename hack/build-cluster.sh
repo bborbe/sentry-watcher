@@ -126,8 +126,11 @@ JOB_NAME="$(printf '%s' "${JOB_NAME}" | sed -e 's/[-.]*$//')"
 case "${JOB_NAME}" in
 *$'\n'*) die "JOB_NAME contains a newline, which is not allowed" ;;
 esac
-printf '%s' "${JOB_NAME}" | grep -qE '^[a-z0-9]([-a-z0-9]*[a-z0-9])?$' ||
-	die "JOB_NAME '${JOB_NAME}' is not a valid DNS-1123 name"
+# DNS-1123 *subdomain*, not label: the sanitizer above deliberately keeps dots,
+# so `build-v0.6.6-arm-20261110-711fafc` is valid and a label-only pattern
+# ([a-z0-9-]) would reject every version-shaped tag.
+printf '%s' "${JOB_NAME}" | grep -qE '^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$' ||
+	die "JOB_NAME '${JOB_NAME}' is not a valid DNS-1123 subdomain name"
 
 rendered="$(mktemp)"
 trap 'rm -f "${rendered}"' EXIT
