@@ -4,15 +4,15 @@ ARG BUILD_GIT_COMMIT=none
 ARG BUILD_DATE=unknown
 COPY . /workspace
 WORKDIR /workspace
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -mod=vendor -ldflags "-s" -a -installsuffix cgo -o /main
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-s" -a -installsuffix cgo -o /main
 # The heartbeat emitter ships in the same image: a CronJob runs it by
 # overriding the entrypoint with `command: ["/heartbeat"]`, so the emitter
 # cannot drift from the watcher's tag or search expression.
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -mod=vendor -ldflags "-s" -a -installsuffix cgo -o /heartbeat ./cmd/heartbeat
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-s" -a -installsuffix cgo -o /heartbeat ./cmd/heartbeat
 # The detector ships in the same image too, so emitter and checker cannot drift
 # apart on the tag or the search expression — a mismatch would report ingestion
 # dead forever, indistinguishable from the real failure.
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -mod=vendor -ldflags "-s" -a -installsuffix cgo -o /check-heartbeat ./cmd/check-heartbeat
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags "-s" -a -installsuffix cgo -o /check-heartbeat ./cmd/check-heartbeat
 CMD ["/bin/bash"]
 
 FROM ${DOCKER_REGISTRY}/alpine:3.23 AS alpine

@@ -136,3 +136,34 @@ over identical task ids.
 - `make precommit` — format + generate + test + lint/vet/vuln/trivy gate
 - `cmd/run-once` — single poll cycle for local smoke-testing
 - Tests are Ginkgo/Gomega with counterfeiter mocks under `mocks/`
+
+## Building
+
+`make build` has two arms, selected by `BUILD_TARGET`.
+
+**Local (default)** — `make build` runs `docker build` on this machine and leaves
+the image in the local Docker store under `docker.io/bborbe/sentry-watcher:<VERSION>`.
+`VERSION` defaults to the newest release tag, and `check-version-tag` refuses to
+build a version whose tag `HEAD` is not on. For a scratch build, pass
+`VERSION=<tag> ALLOW_UNTAGGED_BUILD=1`.
+
+**Cluster** — `BUILD_TARGET=<kubectl context>` renders a BuildKit Job, applies it
+to the cluster's `build` namespace, waits for it, and prints the pod log tail if
+it fails. The Job clones `REF`, builds `linux/amd64`, and pushes
+`docker.io/bborbe/sentry-watcher:<VERSION>` using the `buildkit-push` secret. No
+local image is produced, so `make upload` and `make clean` skip their host work.
+
+```bash
+make build BUILD_TARGET=sun REF=<full 40-character sha> VERSION=<tag>
+```
+
+`REF` must be a full 40-character SHA — the Job clones it shallowly, so a short
+SHA fails there. `VERSION` is required for a cluster build: the Makefile default
+resolves to the newest release tag, and building that from an arbitrary `REF`
+would overwrite the release.
+
+Prerequisites, once per cluster: the `build` namespace and a
+`kubernetes.io/dockerconfigjson` secret named `buildkit-push` in it. Both are
+created by `hack/build-cluster-bootstrap.sh <context>`, which reads the Docker
+Hub credential from TeamVault. The private-registry copy the deployment pulls is
+produced by `nuke/sentry-watcher`'s `MIRROR_IMAGES` step, not by this build.
