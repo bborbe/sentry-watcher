@@ -120,6 +120,24 @@ in ONE stage only (prod canonical; enable dev only transiently for e2e) — both
 stages' controllers materialize into the same Personal vault and would fight
 over identical task ids.
 
+## Building
+
+`make build` builds the image locally by default. Set `BUILD_TARGET` to build inside a cluster instead.
+
+- `BUILD_TARGET` — `local` (default) builds with the local Docker daemon; any other value (for example `sun`) renders and applies `hack/build-job.yaml`, waits for the Job, and reports its result.
+- `REF` — full 40-character commit SHA to build in the cluster. Ignored by the local arm.
+- `VERSION` — image tag. Required for a cluster build; the local arm falls back to the newest release tag.
+
+```bash
+# local (unchanged)
+make build VERSION=v0.6.4
+
+# cluster
+make build BUILD_TARGET=sun REF=<40-char-sha> VERSION=v0.6.4-arm
+```
+
+Cluster prerequisites: a `build` namespace and a `kubernetes.io/dockerconfigjson` secret named `buildkit-push`. Create them once with `hack/build-cluster-bootstrap.sh` and `hack/dockerconfig.json.tpl`.
+
 ## End-to-End Verification (force an emit)
 
 1. Deploy dev with `SEED_DATE` set to a date before the issues' current activity

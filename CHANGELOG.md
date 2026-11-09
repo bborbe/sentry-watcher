@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- feat: `make build` gains a `BUILD_TARGET` selector; naming a cluster renders and applies a Kubernetes Job that clones `REF`, builds `linux/amd64` with BuildKit and pushes the image, while the local arm is unchanged
+
 ## v0.6.5
 
 - chore: restate the do-not-merge contract exemption sentence in the required check

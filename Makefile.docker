@@ -1,11 +1,27 @@
 DOCKER_REGISTRY ?= docker.io
+BUILD_TARGET ?= local
+BUILD_DOCKERFILE ?= Dockerfile
+IMAGE = $(DOCKER_REGISTRY)/bborbe/$(SERVICE)
 
+VERSION_IS_DEFAULT :=
 ifeq ($(VERSION),)
 	VERSION := $(shell git describe --tags `git rev-list --tags --max-count=1`)
+	VERSION_IS_DEFAULT := true
+endif
+
+# DNS-1123 Job name: build-<VERSION>, lowercased, everything outside [a-z0-9.-]
+# replaced with '-', truncated to 63 characters, trailing '-' and '.' stripped.
+JOB_NAME := $(shell printf '%s' 'build-$(VERSION)' | tr 'A-Z' 'a-z' | sed 's/[^a-z0-9.-]/-/g' | cut -c1-63 | sed 's/[-.]*$$//')
+
+ifeq ($(BUILD_TARGET),local)
+BUILD_PREREQS := check-version-tag check-go-mod
+else
+BUILD_PREREQS :=
 endif
 
 .PHONY: build
-build: check-version-tag check-go-mod
+build: $(BUILD_PREREQS)
+ifeq ($(BUILD_TARGET),local)
 	@if [ -z "$(VERSION)" ]; then echo "ERROR: no VERSION set and no git tag found — set VERSION=vX.Y.Z or create a tag" >&2; exit 1; fi
 	DOCKER_BUILDKIT=1 \
 	docker build \
@@ -18,6 +34,10 @@ build: check-version-tag check-go-mod
 	--build-arg BUILD_DATE=$$(date -u +%Y-%m-%dT%H:%M:%SZ) \
 	-t $(DOCKER_REGISTRY)/bborbe/$(SERVICE):$(VERSION) \
 	-f Dockerfile .
+else
+	@if [ -n "$(VERSION_IS_DEFAULT)" ]; then echo "ERROR: VERSION is required for BUILD_TARGET=$(BUILD_TARGET) — set VERSION=vX.Y.Z explicitly" >&2; exit 1; fi
+	@BUILD_TARGET="$(BUILD_TARGET)" REF="$(REF)" REPO_URL="https://github.com/bborbe/sentry-watcher.git" TAG="$(VERSION)" IMAGE="$(IMAGE)" DOCKERFILE="$(BUILD_DOCKERFILE)" JOB_NAME="$(JOB_NAME)" PUSH_SECRET="buildkit-push" bash hack/build-cluster.sh
+endif
 
 .PHONY: check-version-tag
 check-version-tag:
@@ -46,14 +66,22 @@ check-go-mod:
 
 .PHONY: upload
 upload:
-	docker push $(DOCKER_REGISTRY)/bborbe/$(SERVICE):$(VERSION)
+ifeq ($(BUILD_TARGET),local)
+	docker push $(IMAGE):$(VERSION)
+else
+	@echo "skip upload — BUILD_TARGET=$(BUILD_TARGET) already pushed from the cluster"
+endif
 
 .PHONY: clean
 clean:
-	docker rmi $(DOCKER_REGISTRY)/bborbe/$(SERVICE):$(VERSION) || true
+ifeq ($(BUILD_TARGET),local)
+	docker rmi $(IMAGE):$(VERSION) || true
 	docker image prune -f || true
 	docker builder prune --all -f || true
 	rm -rf vendor
+else
+	@echo "skip clean — BUILD_TARGET=$(BUILD_TARGET) has no local image"
+endif
 
 # Publish-only: no k8s in this repo. Deployment lives in the maintainer Helm
 # chart (mirror + keel-pattern). apply is a no-op placeholder.
