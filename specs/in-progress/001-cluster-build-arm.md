@@ -62,22 +62,8 @@ This repo carries two build guards the reference implementation did not. `build:
 - [ ] **Post-Deploy (Rung-2): the build does not push to the private registry** — evidence: negative — `kubectlsun -n build logs job/build-<cluster-scratch-tag> | grep -c 'docker.prod.nuke.benjamin-borbe.de'` returns `0`, and `crane digest docker.prod.nuke.benjamin-borbe.de:443/bborbe/sentry-watcher:<cluster-scratch-tag>` fails with `MANIFEST_UNKNOWN` (not an auth error) for a tag only this arm produced.
   - `deploy_check:` `kubectlsun -n build get secret buildkit-push -o jsonpath='{.type}'`
   - `deploy_target:` `kubernetes.io/dockerconfigjson`
-- [ ] **The dark-factory config and its validation prompt are committed on the branch** — evidence: `git ls-tree -r --name-only HEAD` lists `.dark-factory.yaml` and `docs/dod.md` (committed, not merely present in the working tree), `test -s .dark-factory.yaml` exits 0, and `.dark-factory.yaml` carries each property DB 12 names — each of these returns `1`:
-  - `grep -c '^pr: false' .dark-factory.yaml`
-  - `grep -c '^workflow: direct' .dark-factory.yaml`
-  - `grep -c '^hideGit: true' .dark-factory.yaml`
-  - `grep -c '^validationCommand: "make test lint"' .dark-factory.yaml`
-  - `grep -c '^validationPrompt: docs/dod.md' .dark-factory.yaml`
-  - `grep -c '^autoRelease: false' .dark-factory.yaml`
-  - `grep -c '^  GOFLAGS: "-buildvcs=false"' .dark-factory.yaml`
-  - `grep -c '^  ROOTDIR: /workspace' .dark-factory.yaml`
-  - `grep -c '^  GOPATH: /home/node/go' .dark-factory.yaml`
-  - `grep -c '^  GOCACHE: /home/node/.cache/go-build' .dark-factory.yaml`
-  - `grep -c '^  GOLANGCI_LINT_CACHE: /home/node/.cache/golangci-lint' .dark-factory.yaml`
-  - `grep -c '^extraMounts:' .dark-factory.yaml` returns `1` **and** `grep -c '^  - src:' .dark-factory.yaml` returns `3` (an empty `extraMounts:` list satisfies a bare key grep but mounts nothing)
-
-  and `grep -c '^## ' docs/dod.md` returns ≥ 4, so a one-byte file does not pass. `master` carries neither file; the goal's spec-route rule puts a `sentry-*`/`*-watcher` repo that lacks the config on the spec route only once the PR adds it. The `ROOTDIR` and `GOFLAGS` entries are load-bearing, not hygiene: `Makefile.precommit:1` resolves `ROOTDIR` with `git rev-parse --show-toplevel`, and `hideGit: true` masks `.git` inside the container, so without `ROOTDIR=/workspace` the `include $(ROOTDIR)/tools.env` at `:5` aborts make at parse time. `validationCommand` is what makes AC 17's `make test`/`make lint` authoritative instead of advisory.
-- [ ] **`README.md` and `CHANGELOG.md` carry the new usage** — evidence: `grep -c 'BUILD_TARGET' README.md` returns ≥ 1 and `grep -c 'REF=' README.md` returns ≥ 1 (a `## Building` section naming all three inputs), and `awk '/^## Unreleased/{f=1;next} /^## /{f=0} f' CHANGELOG.md | grep -c 'cluster'` returns ≥ 1. Both are mandated by the `docs/dod.md` this spec ships; without the CHANGELOG entry the merge-time releaser has nothing to cut, since `.maintainer.yaml` sets `release.autoRelease: true`.
+- [ ] **The dark-factory config is left as master carries it, and `make` survives a masked `.git`** — evidence: `.dark-factory.yaml` still carries master's five keys unchanged — `grep -c '^workflow: worktree'`, `grep -c '^pr: true'`, `grep -c '^autoRelease: false'`, `grep -c '^autoGeneratePrompts: true'`, `grep -c '^validationPrompt: docs/dod.md'` each return `1` — and `Makefile.variables:1` resolves `ROOTDIR` with a fallback: `grep -c 'git rev-parse --show-toplevel 2>/dev/null || pwd' Makefile.variables` returns `1`. The fallback is load-bearing, not hygiene: `workflow: worktree` masks `.git` inside the container, so `git rev-parse --show-toplevel` returns empty and the `include $(ROOTDIR)/tools.env` at `Makefile.precommit:5` becomes `include /tools.env`, aborting make at parse time before any target runs. Falling back to `pwd` is a no-op locally, where git resolves the same directory.
+- [ ] **`README.md` and `CHANGELOG.md` carry the new usage** — evidence: `grep -c 'BUILD_TARGET' README.md` returns ≥ 1 and `grep -c 'REF=' README.md` returns ≥ 1 (a `## Building` section naming all three inputs), and `awk '/^## Unreleased/{f=1;next} /^## /{f=0} f' CHANGELOG.md | grep -c 'cluster'` returns ≥ 1. Both are mandated by `docs/dod.md`; without the CHANGELOG entry the merge-time releaser has nothing to cut, since `.maintainer.yaml` sets `release.autoRelease: true`.
 - [ ] **The Job name is DNS-1123 sanitized** — evidence: `make -n build BUILD_TARGET=sun REF=<sha> VERSION=v0.6.4-arm_test` renders `build-v0.6.4-arm-test` (underscore replaced, nothing else changed), and `make -n build BUILD_TARGET=sun REF=<sha> VERSION=$(printf 'a%.0s' {1..56})-$(printf 'b%.0s' {1..20})` renders a Job name of exactly 63 characters ending in `b`, with the `-` that lands on position 63 stripped. The underscore case exercises the substitution rule and this case the truncation-and-strip rule — 70 identical characters would truncate to a run of `v`s and satisfy "no trailing `-`" vacuously.
 - [ ] **`make test` and `make lint` pass** — evidence: exit code 0 for both. (Not `make precommit`: its `check` target pulls trivy / osv-scanner / vulncheck over the network and asserts nothing about this change.)
 
@@ -133,8 +119,8 @@ This repo carries two build guards the reference implementation did not. `build:
 9. `upload` and `clean` skip their host-side work for a non-`local` target and exit 0.
 10. The Job is named `build-<VERSION>` after DNS-1123 sanitization — lowercased, everything outside `[a-z0-9.-]` replaced with `-`, truncated to 63 characters, trailing `-` and `.` stripped — so `build-v0.6.4-arm_test` becomes `build-v0.6.4-arm-test`. The name is computed in the `Makefile` as a `$(shell …)` expression and passed to the script, so `make -n` renders the sanitized name rather than the raw tag.
 11. `IMAGE` resolves to `$(DOCKER_REGISTRY)/bborbe/$(SERVICE)` — the same string the local `-t` uses — so the Job pushes exactly the reference the local arm tags and `make upload` pushes.
-12. `.dark-factory.yaml` and `docs/dod.md` exist on the branch: `pr: false`, `workflow: direct`, `hideGit: true`, `validationCommand: "make test lint"`, `validationPrompt: docs/dod.md`, `autoRelease: false`, the Go `env` (`GOPATH`, `GOCACHE`, `GOLANGCI_LINT_CACHE`, `GOFLAGS: -buildvcs=false`, `ROOTDIR: /workspace`) and `extraMounts`, and a DoD matching this repo's conventions.
-13. `README.md` gains a `## Building` section naming `BUILD_TARGET`, `REF` and `VERSION`, and `CHANGELOG.md` carries an `## Unreleased` entry — the two deliverables this spec's own `docs/dod.md` mandates.
+12. `.dark-factory.yaml` keeps the shape master already carries — `workflow: worktree`, `pr: true`, `autoRelease: false`, `autoGeneratePrompts: true`, `validationPrompt: docs/dod.md` — and `Makefile.variables` resolves `ROOTDIR` with a `|| pwd` fallback so `make` survives the masked `.git` that `workflow: worktree` creates.
+13. `README.md` gains a `## Building` section naming `BUILD_TARGET`, `REF` and `VERSION`, and `CHANGELOG.md` carries an `## Unreleased` entry — the two deliverables `docs/dod.md` mandates.
 
 ## Constraints
 
@@ -193,7 +179,7 @@ Named so the operator can check them before the first cluster run:
 | # | Prompt focus | Covers DBs | Covers ACs | Rung | Depends on |
 |---|---|---|---|---|---|
 | 1 | `Makefile.docker` — the `BUILD_TARGET` selector, the `IMAGE` mapping, the `check-version-tag` / `check-go-mod` wraps, the missing-`VERSION` refusal, the `upload` / `clean` skips, and the Job-name sanitization | 1, 7, 8, 9, 10, 11 | 1, 2, 3, 4, 9, 11, 16 | container (1, 4, 9, 11, 16) + operator (2, 3) | — |
-| 2 | `hack/` — author the five arm files from the contract in DBs 4–6 and Constraints; the implementing container cannot reach another repository, so the scripts and manifest are written from the spec, not copied. Includes the `Dockerfile` `-mod=vendor` removal, the `.dark-factory.yaml` / `docs/dod.md` additions, and the README / CHANGELOG entries | 4, 5, 6, 12, 13 | 10, 12, 14, 15 | container | — |
+| 2 | `hack/` — author the five arm files from the contract in DBs 4–6 and Constraints; the implementing container cannot reach another repository, so the scripts and manifest are written from the spec, not copied. Includes the `Dockerfile` `-mod=vendor` removal, the `Makefile.variables` `ROOTDIR` fallback, and the README / CHANGELOG entries | 4, 5, 6, 12, 13 | 10, 12, 14, 15 | container | — |
 | 3 | The cluster branch of `build`: validate `REF`, render, apply, wait, report | 2, 3, 4, 5 | 5, 6, 7, 8, 13 | container (7's script-level `REF` refusal) + operator (5, 6, 7's `VERSION` refusal and `NotFound`, 8, 13) | prompts 1, 2 |
 | — | Global gate, applied after every prompt | — | 17 | container | all |
 
