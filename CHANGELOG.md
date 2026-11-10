@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- chore: update github.com/bborbe/agent to v0.140.0, github.com/bborbe/cron to v1.9.10, github.com/bborbe/http to v1.26.33, github.com/bborbe/kafka to v1.29.13, github.com/bborbe/log to v1.7.8, github.com/bborbe/run to v1.11.11, github.com/bborbe/service to v1.11.3, github.com/bborbe/time to v1.27.27
+
 ## v0.7.0
 
 - feat(build): add a `BUILD_TARGET` cluster arm so the image can be built as a BuildKit Job instead of only on a Mac; `make build` with no `BUILD_TARGET` is unchanged
