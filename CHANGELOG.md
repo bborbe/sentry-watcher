@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.7.2
 
 - chore: bump the go directive to 1.27.4 for GO-2026-6859 (stdlib MaxBytesReader header race)
 - fix: derive `task_identifier` from the short-id alone instead of `(short-id, date)`, so an issue that already has an open task is not given a fresh daily copy — the controller resolves the create to the existing file and refuses it while that task is non-terminal, reopening it once terminal
