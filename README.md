@@ -34,8 +34,14 @@ On each poll cycle (default daily at 00:00Z, via a real cron expression):
 6. **Unchanged** (issue date <= cursor entry): record `already_seen`, emit
    nothing.
 
-Deterministic `UUID5("sentry:" + short-id + ":" + date)` gives controller dedup
-— re-polling an already-emitted `(short-id, date)` is a no-op.
+Deterministic `UUID5("sentry:" + short-id)` gives controller dedup — one
+`task_identifier` per Sentry issue, whatever day it is active. The controller's
+identifier index resolves a later day's create to the file it already holds: a
+task still open (`human_review` or earlier) is refused as
+`ErrTaskAlreadyExists`, and a terminal one (`completed` / `aborted`) is
+reopened in place. So re-polling is a no-op and a still-open issue never gets a
+second daily copy, while an issue that recurs after its analysis finished is
+analysed again.
 
 ## Task Contract
 

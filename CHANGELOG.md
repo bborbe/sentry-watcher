@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- fix: derive `task_identifier` from the short-id alone instead of `(short-id, date)`, so an issue that already has an open task is not given a fresh daily copy — the controller resolves the create to the existing file and refuses it while that task is non-terminal, reopening it once terminal
+
 ## v0.7.1
 
 - chore: update github.com/bborbe/agent to v0.140.0, github.com/bborbe/cron to v1.9.10, github.com/bborbe/http to v1.26.33, github.com/bborbe/kafka to v1.29.13, github.com/bborbe/log to v1.7.8, github.com/bborbe/run to v1.11.11, github.com/bborbe/service to v1.11.3, github.com/bborbe/time to v1.27.27
