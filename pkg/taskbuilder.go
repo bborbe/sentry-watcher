@@ -51,7 +51,7 @@ func BuildCreateCommand(
 	date string,
 	cfg TaskConfig,
 ) (task.CreateCommand, error) {
-	taskIDStr := DeriveTaskID(issue.ShortID, date).String()
+	taskIDStr := DeriveTaskID(issue.ShortID).String()
 	data := taskTemplateData{
 		ShortID:  issue.ShortID,
 		Date:     date,

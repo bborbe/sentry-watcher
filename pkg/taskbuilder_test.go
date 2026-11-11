@@ -73,9 +73,27 @@ var _ = Describe("pkg.BuildCreateCommand", func() {
 		Expect(cmd.Frontmatter["issue_url"]).
 			To(Equal("https://bborbe.sentry.io/issues/1/"))
 		Expect(cmd.Frontmatter["task_identifier"]).
-			To(Equal(pkg.DeriveTaskID("SENTRY-TEST-1", "2026-08-23").String()))
+			To(Equal(pkg.DeriveTaskID("SENTRY-TEST-1").String()))
 		Expect(string(cmd.TaskIdentifier)).To(Equal(cmd.Frontmatter["task_identifier"]))
 		Expect(cmd.Title).To(Equal("Analyze Sentry issue SENTRY-TEST-1 - 2026-08-23"))
+	})
+
+	It("keeps one task_identifier per short-id across days (no daily duplicate)", func() {
+		first, err := pkg.BuildCreateCommand(
+			ctx, testIssue, "2026-08-23", pkg.TaskConfig{Stage: "prod"},
+		)
+		Expect(err).NotTo(HaveOccurred())
+		next, err := pkg.BuildCreateCommand(
+			ctx, testIssue, "2026-08-24", pkg.TaskConfig{Stage: "prod"},
+		)
+		Expect(err).NotTo(HaveOccurred())
+
+		// The controller resolves a create to the file its identifier index
+		// already holds, so a stable identifier is what stops the next day's
+		// emit from materializing a second task for the same issue.
+		Expect(next.TaskIdentifier).To(Equal(first.TaskIdentifier))
+		Expect(next.Frontmatter["task_identifier"]).
+			To(Equal(first.Frontmatter["task_identifier"]))
 	})
 
 	It("renders the default body byte-for-byte (golden)", func() {
