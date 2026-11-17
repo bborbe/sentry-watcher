@@ -19,14 +19,15 @@ jobs:
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
+      # The apt-repo recipe this replaced used `apt-key add`, which the runner
+      # image no longer ships (Ubuntu 26.04 / "resolute" removed it), so the step
+      # failed before precommit ever ran — on every PR since 2026-11-11. The
+      # upstream install script pins no dist codename and needs no key handling.
       - name: Install Trivy
         run: |
-          sudo apt-get update
-          sudo apt-get install -y wget apt-transport-https gnupg lsb-release
-          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
-          echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
-          sudo apt-get update
-          sudo apt-get install -y trivy
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sudo sh -s -- -b /usr/local/bin
+          trivy --version
       - name: Run precommit checks
         env:
           RACE: "false"
