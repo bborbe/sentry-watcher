@@ -2,7 +2,7 @@
 
 Polls the `bborbe.sentry.io` org for unresolved issues with recent activity
 24h and publishes one deduplicated `CreateTaskCommand` per `(short-id, date)` so
-the `sentry-issue-analyzer` agent can analyze each active alert.
+the `sentry-analyzer-agent` agent can analyze each active alert.
 
 The watcher is the **producer** (per-alert detection) front of the Sentry
 pipeline. It never analyzes anything itself — it emits one "Analyze Sentry issue
@@ -49,7 +49,7 @@ Every emitted `CreateTaskCommand` carries this frontmatter shape:
 
 ```yaml
 task_type: sentry-issue-analyzer
-assignee: sentry-issue-analyzer
+assignee: sentry-analyzer-agent
 phase: planning
 status: in_progress
 stage: dev|prod
@@ -80,7 +80,7 @@ lives in the frontmatter fields.
 | `SENTRY_URL` | no | `https://bborbe.sentry.io` | Base URL of the Sentry org |
 | `SENTRY_ORG` | no | `bborbe` | Sentry org slug |
 | `TARGET_VAULT` | no | — | Obsidian vault slug the task-controller materializes the task into (`personal` → `24 Tasks/`). Empty = controller default (`openclaw`) |
-| `TASK_ASSIGNEE` | no | `sentry-issue-analyzer` | Frontmatter `assignee` |
+| `TASK_ASSIGNEE` | no | `sentry-analyzer-agent` | Frontmatter `assignee` — must name a deployed agent Config, never a task type |
 | `TASK_STATUS` | no | `in_progress` | Frontmatter `status` |
 | `TASK_PHASE` | no | `planning` | Frontmatter `phase` |
 | `TASK_SUFFIX` | no | — | Optional title/filename suffix appended as ` - <suffix>` |

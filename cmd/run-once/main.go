@@ -166,7 +166,7 @@ func (a *Application) Run(ctx context.Context, _ libsentry.Client) error {
 		metrics,
 		pkg.TaskConfig{
 			Stage:    a.Stage,
-			Assignee: "sentry-issue-analyzer",
+			Assignee: pkg.DefaultTaskAssignee,
 			Status:   "in_progress",
 			Phase:    "planning",
 		},
