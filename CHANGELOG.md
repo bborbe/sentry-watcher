@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.7.4
 
 - fix: build with `golang:1.27.4`, the version `go.mod` requires. The Dockerfile still pinned `1.27.3` after v0.7.2 raised the go directive for GO-2026-6859, so every image build failed at the first `go build` (`go.mod requires go >= 1.27.4 (running go 1.27.3; GOTOOLCHAIN=local)`) — which is why the deployed image stayed at v0.1.3.
 
