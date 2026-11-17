@@ -52,15 +52,15 @@ var _ = Describe("pkg.BuildCreateCommand", func() {
 			"2026-08-23",
 			pkg.TaskConfig{
 				Stage:    "prod",
-				Assignee: "sentry-issue-analyzer",
+				Assignee: pkg.DefaultTaskAssignee,
 				Status:   "in_progress",
 				Phase:    "planning",
 			},
 		)
 		Expect(err).NotTo(HaveOccurred())
 
-		Expect(cmd.Frontmatter["task_type"]).To(Equal("sentry-issue-analyzer"))
-		Expect(cmd.Frontmatter["assignee"]).To(Equal("sentry-issue-analyzer"))
+		Expect(cmd.Frontmatter["task_type"]).To(Equal(pkg.TaskTypeSentryIssueAnalyzer))
+		Expect(cmd.Frontmatter["assignee"]).To(Equal(pkg.DefaultTaskAssignee))
 		Expect(cmd.Frontmatter["phase"]).To(Equal("planning"))
 		Expect(cmd.Frontmatter["status"]).To(Equal("in_progress"))
 		Expect(cmd.Frontmatter["stage"]).To(Equal("prod"))
@@ -76,6 +76,22 @@ var _ = Describe("pkg.BuildCreateCommand", func() {
 			To(Equal(pkg.DeriveTaskID("SENTRY-TEST-1").String()))
 		Expect(string(cmd.TaskIdentifier)).To(Equal(cmd.Frontmatter["task_identifier"]))
 		Expect(cmd.Title).To(Equal("Analyze Sentry issue SENTRY-TEST-1 - 2026-08-23"))
+	})
+
+	It("never emits the task type as the assignee", func() {
+		// The executor resolves an agent Config by `assignee`; a task type there
+		// matches no Config, so every record is skipped with
+		// agent_executor_skipped_unknown_assignee_total and AgentUnknownAssignee
+		// fires. Pinned because the shipped default did exactly that until
+		// 2026-11-17.
+		cmd, err := pkg.BuildCreateCommand(
+			ctx, testIssue, "2026-08-23", pkg.TaskConfig{Stage: "dev", Assignee: pkg.DefaultTaskAssignee},
+		)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(cmd.Frontmatter["assignee"]).To(Equal(pkg.DefaultTaskAssignee))
+		Expect(pkg.DefaultTaskAssignee).NotTo(Equal(pkg.TaskTypeSentryIssueAnalyzer))
+		Expect(cmd.Frontmatter["assignee"]).NotTo(Equal(cmd.Frontmatter["task_type"]))
 	})
 
 	It("keeps one task_identifier per short-id across days (no daily duplicate)", func() {

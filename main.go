@@ -66,7 +66,7 @@ type application struct {
 	// in the past and the check would pass forever after the first event.
 	HeartbeatMaxAge string `required:"false" arg:"heartbeat-max-age" env:"HEARTBEAT_MAX_AGE" usage:"How old the newest heartbeat may be and still count as present (Go duration, e.g. 6h); should match N. Parsed always, applied only when HEARTBEAT_QUERY is set." default:"6h"`
 
-	TaskAssignee string `required:"true"  arg:"task-assignee" env:"TASK_ASSIGNEE" usage:"Frontmatter assignee for published sentry-issue-analyzer tasks"                                                                                                  default:"sentry-issue-analyzer"`
+	TaskAssignee string `required:"true"  arg:"task-assignee" env:"TASK_ASSIGNEE" usage:"Frontmatter assignee — must name a deployed agent Config, never a task type"                                                                                  default:"sentry-analyzer-agent"`
 	TaskStatus   string `required:"true"  arg:"task-status"   env:"TASK_STATUS"   usage:"Frontmatter status for published sentry-issue-analyzer tasks"                                                                                                    default:"in_progress"`
 	TaskPhase    string `required:"true"  arg:"task-phase"    env:"TASK_PHASE"    usage:"Frontmatter phase for published sentry-issue-analyzer tasks"                                                                                                     default:"planning"`
 	TaskSuffix   string `required:"false" arg:"task-suffix"   env:"TASK_SUFFIX"   usage:"Optional suffix appended to sentry task titles/filenames as ' - suffix'; empty = no suffix. Use distinct values per deployment to prevent task-file collisions."`

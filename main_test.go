@@ -2,9 +2,10 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package main_test
+package main
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -13,7 +14,25 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/format"
 	"github.com/onsi/gomega/gexec"
+
+	"github.com/bborbe/sentry-watcher/pkg"
 )
+
+// TaskAssignee guards the emitted `assignee`, which is the key the executor
+// resolves an agent Config by. The shipped default named the *task type*
+// (`sentry-issue-analyzer`), which matches no Config, so every emitted record
+// was skipped and AgentUnknownAssignee fired — cleared by hand three times
+// before the default was fixed. The struct tag is the only place the default
+// lives, so the invariant is asserted against the tag itself.
+var _ = Describe("TaskAssignee default", func() {
+	It("names the agent, never the emitted task type", func() {
+		field, found := reflect.TypeOf(application{}).FieldByName("TaskAssignee")
+		Expect(found).To(BeTrue())
+
+		Expect(field.Tag.Get("default")).To(Equal(pkg.DefaultTaskAssignee))
+		Expect(pkg.DefaultTaskAssignee).NotTo(Equal(pkg.TaskTypeSentryIssueAnalyzer))
+	})
+})
 
 // Main compiles the root binary via gexec.Build as the go-testing/
 // main-test-with-compiles guard — make test fails if the sentry-watcher binary

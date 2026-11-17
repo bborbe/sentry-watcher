@@ -16,11 +16,29 @@ import (
 	"github.com/bborbe/sentry-watcher/pkg/tasktemplate"
 )
 
+// TaskTypeSentryIssueAnalyzer is the `task_type` this watcher emits. It is a
+// task type, not an agent name: the executor resolves an agent Config by
+// `assignee`, so this value must never be used as one.
+const TaskTypeSentryIssueAnalyzer = "sentry-issue-analyzer"
+
+// DefaultTaskAssignee is the agent name the deployed `sentry-analyzer-agent`
+// Config routes these records to (its `spec.assignee`, and a member of its
+// `spec.taskTypes`).
+//
+// It must stay an agent name. An assignee naming a task type resolves no
+// Config, so the executor skips every emitted record and increments
+// agent_executor_skipped_unknown_assignee_total — the AgentUnknownAssignee
+// alert, cleared by hand three times before the default was fixed.
+const DefaultTaskAssignee = "sentry-analyzer-agent"
+
 // TaskConfig groups per-task envelope settings (stage routing + emitted-task
 // frontmatter knobs).
 type TaskConfig struct {
-	Stage    string // "dev" or "prod" — frontmatter `stage`
-	Assignee string // frontmatter `assignee` (default "sentry-issue-analyzer")
+	Stage string // "dev" or "prod" — frontmatter `stage`
+	// Assignee is the frontmatter `assignee`. The binaries default it to
+	// DefaultTaskAssignee; it must name a deployed agent Config, never a task
+	// type.
+	Assignee string
 	Status   string // frontmatter `status` (default "in_progress")
 	Phase    string // frontmatter `phase` (default "planning")
 	Suffix   string // optional title/filename suffix appended as " - <suffix>"; empty = none
@@ -163,7 +181,7 @@ func buildFrontmatter(
 	cfg TaskConfig,
 ) agentlib.TaskFrontmatter {
 	return agentlib.TaskFrontmatter{
-		"task_type":       "sentry-issue-analyzer",
+		"task_type":       TaskTypeSentryIssueAnalyzer,
 		"assignee":        cfg.Assignee,
 		"phase":           cfg.Phase,
 		"status":          cfg.Status,
