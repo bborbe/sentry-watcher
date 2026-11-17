@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+- fix: build with `golang:1.27.4`, the version `go.mod` requires. The Dockerfile still pinned `1.27.3` after v0.7.2 raised the go directive for GO-2026-6859, so every image build failed at the first `go build` (`go.mod requires go >= 1.27.4 (running go 1.27.3; GOTOOLCHAIN=local)`) — which is why the deployed image stayed at v0.1.3.
+
 ## v0.7.3
 
 - fix: emit `assignee: sentry-analyzer-agent` instead of the task type `sentry-issue-analyzer`. The executor resolves an agent Config by `assignee`, so the task type matched no Config: every record was skipped (`agent_executor_skipped_unknown_assignee_total`) and `AgentUnknownAssignee` fired, cleared by hand three times (72 records, then 15 on 2026-11-14, then 17 on 2026-11-16) while the producer re-emitted each time. The default changes in `main.go`, `cmd/run-once` and both `bborbe/nuke` `values-*.yaml`; `task_type` is unchanged and still `sentry-issue-analyzer`, which the `sentry-analyzer-agent` Config carries in `spec.taskTypes`. Both constants now live in `pkg` (`DefaultTaskAssignee`, `TaskTypeSentryIssueAnalyzer`), and a spec pins the struct-tag default to the agent name so the two cannot drift back together.
