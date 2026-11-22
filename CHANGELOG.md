@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.7.5
 
 - fix: treat a `429` from the proxy as a non-fatal, attributable outcome instead of a failed Job. The proxy synthesises the 429 locally on its own rolling window and forwards nothing, so a throttled cycle is not a broken emitter — but `Send` returned an error on every non-2xx, the Job exited non-zero, and `CronJobFailed` paged twice on 2026-11-21/22 while `SentryHeartbeatAge` climbed toward its 18 h bound. The cycle now records a third outcome, `sentry_watcher_heartbeat_emitter_throttled`, and stops recording it as `posted` — the old pair could not tell a throttled cycle from an accepted one. Every other non-2xx stays fatal, and no retry is attempted: the window is rolling and a 429 carries no `Retry-After`, so a bounded retry cannot find room.
 
