@@ -22,6 +22,11 @@ type HeartbeatEmitterMetrics struct {
 	publishPostedArgsForCall []struct {
 		arg1 context.Context
 	}
+	PublishThrottledStub        func(context.Context)
+	publishThrottledMutex       sync.RWMutex
+	publishThrottledArgsForCall []struct {
+		arg1 context.Context
+	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
 }
@@ -87,6 +92,38 @@ func (fake *HeartbeatEmitterMetrics) PublishPostedArgsForCall(i int) context.Con
 	fake.publishPostedMutex.RLock()
 	defer fake.publishPostedMutex.RUnlock()
 	argsForCall := fake.publishPostedArgsForCall[i]
+	return argsForCall.arg1
+}
+
+func (fake *HeartbeatEmitterMetrics) PublishThrottled(arg1 context.Context) {
+	fake.publishThrottledMutex.Lock()
+	fake.publishThrottledArgsForCall = append(fake.publishThrottledArgsForCall, struct {
+		arg1 context.Context
+	}{arg1})
+	stub := fake.PublishThrottledStub
+	fake.recordInvocation("PublishThrottled", []interface{}{arg1})
+	fake.publishThrottledMutex.Unlock()
+	if stub != nil {
+		fake.PublishThrottledStub(arg1)
+	}
+}
+
+func (fake *HeartbeatEmitterMetrics) PublishThrottledCallCount() int {
+	fake.publishThrottledMutex.RLock()
+	defer fake.publishThrottledMutex.RUnlock()
+	return len(fake.publishThrottledArgsForCall)
+}
+
+func (fake *HeartbeatEmitterMetrics) PublishThrottledCalls(stub func(context.Context)) {
+	fake.publishThrottledMutex.Lock()
+	defer fake.publishThrottledMutex.Unlock()
+	fake.PublishThrottledStub = stub
+}
+
+func (fake *HeartbeatEmitterMetrics) PublishThrottledArgsForCall(i int) context.Context {
+	fake.publishThrottledMutex.RLock()
+	defer fake.publishThrottledMutex.RUnlock()
+	argsForCall := fake.publishThrottledArgsForCall[i]
 	return argsForCall.arg1
 }
 

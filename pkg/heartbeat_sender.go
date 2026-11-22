@@ -43,6 +43,12 @@ type HeartbeatSender interface {
 	// Send emits one heartbeat event. A nil return means Sentry accepted the
 	// envelope — which, while the org is over quota, does NOT mean it was
 	// retained. Retention is the checker's question, not the sender's.
+	//
+	// A 429 from the proxy is the one non-2xx that also returns nil. The proxy
+	// refused the envelope on its own rolling window, so nothing was forwarded
+	// and nothing is broken: the cycle is recorded as throttled and the
+	// heartbeat lands on the next one. Every other non-2xx stays an error, so a
+	// proxy that is genuinely failing still fails the Job.
 	Send(ctx context.Context) error
 }
 
@@ -132,6 +138,26 @@ func (s *heartbeatSender) Send(ctx context.Context) error {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode == http.StatusTooManyRequests {
+		// A 429 is the proxy's own sliding window refusing the envelope, not a
+		// fault in the emitter: the request reached the proxy, the proxy
+		// refused it, and nothing was forwarded upstream. Returning an error
+		// here made the Job exit non-zero, so a throttled cycle surfaced as
+		// `CronJobFailed` — a healthy emitter reported as broken, twice on
+		// 2026-11-21/22 while the heartbeat age climbed toward the check's 18 h
+		// bound. The cycle is recorded as throttled instead and the heartbeat
+		// lands on the next one: the window is rolling and a 429 carries no
+		// Retry-After, so a bounded retry inside activeDeadlineSeconds cannot
+		// find room.
+		glog.Warningf(
+			"heartbeat throttled event_id=%s status=%d elapsed_ms=%d",
+			eventID,
+			resp.StatusCode,
+			elapsedMS,
+		)
+		s.recordThrottled(ctx)
+		return nil
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		statusErr := errors.Errorf(ctx, "post heartbeat %s: status %d", eventID, resp.StatusCode)
 		glog.Warningf(
@@ -161,6 +187,17 @@ func (s *heartbeatSender) recordPosted(ctx context.Context) {
 		return
 	}
 	s.cfg.Metrics.PublishPosted(ctx)
+}
+
+// recordThrottled records the cycle as rate limited by the proxy. It is its own
+// outcome rather than a flavour of posted: a throttled cycle was refused and
+// forwarded nothing, and reporting it as posted is what made a healthy-but-
+// throttled emitter indistinguishable from a broken one.
+func (s *heartbeatSender) recordThrottled(ctx context.Context) {
+	if s.cfg.Metrics == nil {
+		return
+	}
+	s.cfg.Metrics.PublishThrottled(ctx)
 }
 
 // recordNotReachedProxy advances the "never reached the proxy" counter, the

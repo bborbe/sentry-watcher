@@ -112,8 +112,11 @@ var _ = Describe("pkg.HeartbeatSender.Send", func() {
 		Expect(lines[2]).To(ContainSubstring(`"source":"` + pkg.HeartbeatTag + `"`))
 	})
 
-	It("returns an error on a non-2xx response", func() {
-		status = http.StatusTooManyRequests
+	// A 429 is carved out below; every other non-2xx stays fatal, so a proxy
+	// that is genuinely failing still fails the Job and still pages. Driven
+	// with 500 rather than 429 so the two contracts cannot drift into one.
+	It("returns an error on a non-429 non-2xx response", func() {
+		status = http.StatusInternalServerError
 		sender := pkg.NewHeartbeatSender(pkg.HeartbeatSenderConfig{
 			DSN:        dsn,
 			ProxyURL:   server.URL,
@@ -123,7 +126,31 @@ var _ = Describe("pkg.HeartbeatSender.Send", func() {
 		err := sender.Send(ctx)
 
 		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("429"))
+		Expect(err.Error()).To(ContainSubstring("500"))
+	})
+
+	// The 2026-11-21/22 case: the proxy's own sliding window refused the
+	// envelope, so the cycle was throttled, not broken. Returning an error here
+	// made the Job exit non-zero and `CronJobFailed` page on a healthy emitter
+	// while the heartbeat age climbed toward the check's 18 h bound.
+	It("treats a 429 as a non-fatal, throttled cycle", func() {
+		status = http.StatusTooManyRequests
+		recorder := &mocks.HeartbeatEmitterMetrics{}
+		sender := pkg.NewHeartbeatSender(pkg.HeartbeatSenderConfig{
+			DSN:        dsn,
+			ProxyURL:   server.URL,
+			HTTPClient: server.Client(),
+			Metrics:    recorder,
+		})
+
+		Expect(sender.Send(ctx)).To(Succeed())
+
+		// Exactly one outcome, and it is the throttled one: recording a 429 as
+		// posted is what made a throttled cycle indistinguishable from an
+		// accepted one, which is the whole defect this carve-out fixes.
+		Expect(recorder.PublishThrottledCallCount()).To(Equal(1))
+		Expect(recorder.PublishPostedCallCount()).To(Equal(0))
+		Expect(recorder.PublishNotReachedProxyCallCount()).To(Equal(0))
 	})
 
 	// The outcome has to outlive the pod, so it is recorded at the boundary the
@@ -148,7 +175,7 @@ var _ = Describe("pkg.HeartbeatSender.Send", func() {
 	// the next reader at the emitter's transport instead of at whatever the
 	// proxy refused — the distinction this pair exists to preserve.
 	It("records a rejected envelope as posted, not as never-reached", func() {
-		status = http.StatusTooManyRequests
+		status = http.StatusInternalServerError
 		recorder := &mocks.HeartbeatEmitterMetrics{}
 		sender := pkg.NewHeartbeatSender(pkg.HeartbeatSenderConfig{
 			DSN:        dsn,
