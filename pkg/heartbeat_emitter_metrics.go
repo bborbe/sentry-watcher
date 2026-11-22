@@ -25,14 +25,14 @@ import (
 // the proxy's log because the pods had been garbage-collected within a day;
 // these series outlive the pod, which is the whole point of publishing them.
 //
-// The two methods are deliberately two *outcomes*, not one success/failure
-// pair: "the emitter never reached the proxy" and "the proxy answered and
-// refused the envelope" are different faults with different owners, and a
-// single series cannot separate them.
+// The three methods are deliberately three *outcomes*, not one success/failure
+// pair: "the emitter never reached the proxy", "the proxy answered and refused
+// the envelope", and "the proxy answered and throttled the cycle" are different
+// faults with different owners, and a single series cannot separate them.
 type HeartbeatEmitterMetrics interface {
 	// PublishPosted reports that the POST reached the proxy and returned an
-	// HTTP response, whatever its status. A rejected envelope lands here, not
-	// in PublishNotReachedProxy.
+	// HTTP response that was not a rate limit. A rejected envelope lands here,
+	// not in PublishNotReachedProxy; a throttled one lands in PublishThrottled.
 	//
 	// It returns no error on purpose, mirroring HeartbeatMetrics.PublishLastSeen:
 	// a metrics push that fails must not fail the emitter. A gateway that is
@@ -43,6 +43,13 @@ type HeartbeatEmitterMetrics interface {
 	// a transport failure, or a request that could not be built — so nothing
 	// reached Sentry at all.
 	PublishNotReachedProxy(ctx context.Context)
+
+	// PublishThrottled reports that the proxy answered 429: the request reached
+	// the proxy, the proxy's own sliding window refused it, and nothing was
+	// forwarded upstream. It is deliberately separate from PublishPosted, which
+	// carried a 429 as a healthy post and so could not tell a throttled cycle
+	// from an accepted one.
+	PublishThrottled(ctx context.Context)
 }
 
 // heartbeatEmitterPushJob is the push-gateway group the emitter's outcome
@@ -54,19 +61,21 @@ type HeartbeatEmitterMetrics interface {
 // overwrite the other's series.
 const heartbeatEmitterPushJob = "sentry_heartbeat_emitter"
 
-// heartbeatEmitterMetricSubsystem and the two names below complete the metric
-// names to sentry_watcher_heartbeat_emitter_posted and
-// sentry_watcher_heartbeat_emitter_not_reached_proxy, per
+// heartbeatEmitterMetricSubsystem and the three names below complete the metric
+// names to sentry_watcher_heartbeat_emitter_posted,
+// sentry_watcher_heartbeat_emitter_not_reached_proxy and
+// sentry_watcher_heartbeat_emitter_throttled, per
 // go-prometheus/naming ({namespace}_{subsystem}_{name}).
 //
-// Neither carries the `_total` suffix, because neither is a counter. The value
-// is a per-cycle state that goes 1 → 0 on the next cycle of the other outcome,
-// and a Prometheus counter is monotonically non-decreasing by definition — see
-// the constructor for why that makes a gauge the only honest type here.
+// None carries the `_total` suffix, because none is a counter. The value is a
+// per-cycle state that goes 1 → 0 on the next cycle of another outcome, and a
+// Prometheus counter is monotonically non-decreasing by definition — see the
+// constructor for why that makes a gauge the only honest type here.
 const (
 	heartbeatEmitterMetricSubsystem     = "heartbeat_emitter"
 	heartbeatEmitterPostedName          = "posted"
 	heartbeatEmitterNotReachedProxyName = "not_reached_proxy"
+	heartbeatEmitterThrottledName       = "throttled"
 )
 
 // heartbeatEmitterPushTimeout bounds one push to the gateway when no client is
@@ -85,7 +94,7 @@ const heartbeatEmitterPushTimeout = 10 * time.Second
 // A nil client gets one bounded by heartbeatEmitterPushTimeout. Pass a client
 // only to override that bound, which the tests do so the hang case stays fast.
 //
-// Both series are gauges, and that is a contract point rather than a style
+// All three series are gauges, and that is a contract point rather than a style
 // choice. The value is the *last cycle's* outcome: the emitter starts from zero
 // every run, so it publishes 0 or 1, and each cycle overwrites the previous
 // one — 1 → 0 whenever the next cycle takes the other branch. A Prometheus
@@ -113,11 +122,21 @@ const heartbeatEmitterPushTimeout = 10 * time.Second
 //   - *which way the last cycle failed* — this pair.
 //
 // The per-cycle record an observation window needs comes from that first
-// producer too, not from these gauges: a non-2xx response or a transport
-// failure returns an error from Send, so the Job exits non-zero and
-// kube-state-metrics records `kube_job_status_failed` for that cycle — which
-// carries each cycle's send outcome for as long as Prometheus retains it,
+// producer too, not from these gauges: a non-2xx response other than a 429, or
+// a transport failure, returns an error from Send, so the Job exits non-zero
+// and kube-state-metrics records `kube_job_status_failed` for that cycle —
+// which carries each cycle's send outcome for as long as Prometheus retains it,
 // where a last-value gauge carries only the most recent one.
+//
+// A 429 is the one deliberate exception, and its cost is worth stating rather
+// than discovering later. Since a throttled cycle must not read as a broken
+// emitter, Send returns nil on a 429, so the Job completes and
+// `kube_job_status_failed` carries nothing — the throttled outcome lives only
+// in sentry_watcher_heartbeat_emitter_throttled, which the next cycle
+// overwrites. A throttle is therefore readable until the next cycle runs (6 h),
+// not for Prometheus' full retention. That trade is deliberate: the alternative
+// is a healthy-but-throttled emitter paging as `CronJobFailed`, which is what
+// this pair was extended to stop.
 func NewPushGatewayHeartbeatEmitterMetrics(
 	url string,
 	client *http.Client,
@@ -145,35 +164,63 @@ func NewPushGatewayHeartbeatEmitterMetrics(
 			"proxy's reachability is broken — never that Sentry rejected the envelope, which is " +
 			"what sentry_watcher_heartbeat_emitter_posted records.",
 	})
-	// Both gauges are attached to the pusher below, so both are gathered and
-	// pushed on every run — including a run where neither branch set a value.
-	// That is the mechanism that keeps a reader from seeing *no data* rather
-	// than a zero on the very case the pair exists for, and it is worth stating
-	// precisely: a pushed series exists because its collector was gathered, not
-	// because a value was written to it. An .Add(0) here would be a no-op on a
-	// fresh gauge and would credit the wrong line with the behaviour.
+	throttled := prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: metricNamespace,
+		Subsystem: heartbeatEmitterMetricSubsystem,
+		Name:      heartbeatEmitterThrottledName,
+		Help: "Whether the most recent heartbeat-emitter cycle was rate limited by the proxy: 1 " +
+			"when the proxy answered 429, so the envelope was refused and nothing was forwarded " +
+			"upstream, and 0 otherwise. A 1 here means the cycle was throttled, not that the " +
+			"emitter or the proxy is broken — the heartbeat lands on the next cycle, once the " +
+			"proxy's rolling window has room.",
+	})
+	// All three gauges are attached to the pusher below, so all three are
+	// gathered and pushed on every run — including a run where no branch set a
+	// value. That is the mechanism that keeps a reader from seeing *no data*
+	// rather than a zero on the very case the set exists for, and it is worth
+	// stating precisely: a pushed series exists because its collector was
+	// gathered, not because a value was written to it. An .Add(0) here would be
+	// a no-op on a fresh gauge and would credit the wrong line with the
+	// behaviour.
+	//
+	// Exactly one of the three reads 1 after every cycle: the sender takes
+	// exactly one of the three branches, and a fresh process starts from the
+	// pre-initialised zero.
 	return &pushGatewayHeartbeatEmitterMetrics{
 		posted:          posted,
 		notReachedProxy: notReachedProxy,
+		throttled:       throttled,
 		pusher: push.New(url, heartbeatEmitterPushJob).
 			Client(client).
 			Collector(posted).
-			Collector(notReachedProxy),
+			Collector(notReachedProxy).
+			Collector(throttled),
 	}
 }
 
 type pushGatewayHeartbeatEmitterMetrics struct {
 	posted          prometheus.Gauge
 	notReachedProxy prometheus.Gauge
+	throttled       prometheus.Gauge
 	pusher          *push.Pusher
 }
 
 // PublishPosted records this cycle's outcome as posted. It sets rather than
 // increments: the series is the last cycle's state, and a fresh process starts
-// from the pre-initialised zero, so both gauges describe this cycle by the time
-// the push runs.
+// from the pre-initialised zero, so all three gauges describe this cycle by the
+// time the push runs.
 func (m *pushGatewayHeartbeatEmitterMetrics) PublishPosted(ctx context.Context) {
 	m.posted.Set(1)
+	m.push(ctx)
+}
+
+// PublishThrottled records this cycle's outcome as rate limited by the proxy.
+// It is a separate outcome from PublishPosted on purpose: a 429 means the
+// envelope was refused and nothing was forwarded, so reporting it as posted
+// would make a throttled cycle indistinguishable from an accepted one — the
+// ambiguity that let 2026-11-21/22 read as a broken emitter.
+func (m *pushGatewayHeartbeatEmitterMetrics) PublishThrottled(ctx context.Context) {
+	m.throttled.Set(1)
 	m.push(ctx)
 }
 

@@ -63,11 +63,11 @@ var _ = Describe("pkg.NewPushGatewayHeartbeatEmitterMetrics", func() {
 	// so a log line dies with its pod and the next occurrence cannot be
 	// reconstructed from one. This series outlives it.
 	//
-	// Both series are written on every push, the zero one included. A
+	// All three series are written on every push, the zero ones included. A
 	// pushgateway series that has never been pushed does not exist, so an alert
 	// reading it would see no data rather than a zero — silence on the very
 	// case it exists for.
-	It("pushes both outcome gauges under its own group, zero-initialised", func() {
+	It("pushes all three outcome gauges under its own group, zero-initialised", func() {
 		pkg.NewPushGatewayHeartbeatEmitterMetrics(server.URL, nil).PublishPosted(ctx)
 
 		Expect(requests).To(HaveLen(1))
@@ -78,10 +78,11 @@ var _ = Describe("pkg.NewPushGatewayHeartbeatEmitterMetrics", func() {
 		Expect(pushedValues(requests[0])).To(Equal(map[string]float64{
 			"sentry_watcher_heartbeat_emitter_posted":            1,
 			"sentry_watcher_heartbeat_emitter_not_reached_proxy": 0,
+			"sentry_watcher_heartbeat_emitter_throttled":         0,
 		}))
 	})
 
-	// The distinction the pair exists for. A cycle that starts and never reaches
+	// The distinction the set exists for. A cycle that starts and never reaches
 	// the proxy is a different fault from one the proxy answers and refuses, and
 	// a single series cannot tell them apart.
 	It("records a cycle that never reached the proxy separately", func() {
@@ -91,22 +92,40 @@ var _ = Describe("pkg.NewPushGatewayHeartbeatEmitterMetrics", func() {
 		Expect(pushedValues(requests[0])).To(Equal(map[string]float64{
 			"sentry_watcher_heartbeat_emitter_posted":            0,
 			"sentry_watcher_heartbeat_emitter_not_reached_proxy": 1,
+			"sentry_watcher_heartbeat_emitter_throttled":         0,
 		}))
 	})
 
-	// Both series are gauges, and the type is the assertion here. A counter is
-	// monotonically non-decreasing by definition, but this value goes 1 → 0 on
-	// the next cycle of the other outcome — so typed as a counter it would
+	// A throttled cycle is the third fault, and the one the 2026-11-21/22
+	// failure was: the proxy answered 429 and forwarded nothing. Reporting it
+	// under `posted` — which is what the two-series version did — made it
+	// indistinguishable from an accepted cycle, so the board could not say
+	// whether the emitter was throttled or broken.
+	It("records a throttled cycle as its own outcome", func() {
+		pkg.NewPushGatewayHeartbeatEmitterMetrics(server.URL, nil).PublishThrottled(ctx)
+
+		Expect(requests).To(HaveLen(1))
+		Expect(pushedValues(requests[0])).To(Equal(map[string]float64{
+			"sentry_watcher_heartbeat_emitter_posted":            0,
+			"sentry_watcher_heartbeat_emitter_not_reached_proxy": 0,
+			"sentry_watcher_heartbeat_emitter_throttled":         1,
+		}))
+	})
+
+	// All three series are gauges, and the type is the assertion here. A counter
+	// is monotonically non-decreasing by definition, but this value goes 1 → 0
+	// on the next cycle of another outcome — so typed as a counter it would
 	// violate the contract, making rate() and increase() nonsense over it and
 	// misleading anyone who read the `_total` name as a running total. The
 	// family's own type in the pushed body is what pins that.
-	It("exports both series as gauges, not counters", func() {
+	It("exports all three series as gauges, not counters", func() {
 		pkg.NewPushGatewayHeartbeatEmitterMetrics(server.URL, nil).PublishPosted(ctx)
 
 		Expect(requests).To(HaveLen(1))
 		Expect(pushedTypes(requests[0])).To(Equal(map[string]dto.MetricType{
 			"sentry_watcher_heartbeat_emitter_posted":            dto.MetricType_GAUGE,
 			"sentry_watcher_heartbeat_emitter_not_reached_proxy": dto.MetricType_GAUGE,
+			"sentry_watcher_heartbeat_emitter_throttled":         dto.MetricType_GAUGE,
 		}))
 	})
 
