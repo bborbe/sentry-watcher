@@ -65,6 +65,7 @@ var _ = Describe("Run", func() {
 			_ pkg.TaskConfig,
 			_ []string,
 			_ string,
+			_ bool,
 			_ pkg.SentryConfig,
 			_ pkg.HeartbeatChecker,
 		) pkg.Watcher {

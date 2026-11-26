@@ -46,6 +46,7 @@ func NewWatcher(
 	cfg TaskConfig,
 	projectAllowlist []string,
 	seedDate string,
+	coldStartEmit bool,
 	heartbeat HeartbeatChecker,
 ) Watcher {
 	return &watcher{
@@ -56,6 +57,7 @@ func NewWatcher(
 		cfg:              cfg,
 		projectAllowlist: projectAllowlist,
 		seedDate:         seedDate,
+		coldStartEmit:    coldStartEmit,
 		heartbeat:        heartbeat,
 	}
 }
@@ -68,6 +70,7 @@ type watcher struct {
 	cfg              TaskConfig
 	projectAllowlist []string
 	seedDate         string
+	coldStartEmit    bool
 	heartbeat        HeartbeatChecker
 }
 
@@ -75,7 +78,9 @@ type watcher struct {
 //  1. Load cursor (cold-start safe).
 //  2. Query Sentry for unresolved issues active in the stats period — on error
 //     hold the cursor, record sentry_error, return nil.
-//  3. Cold start (empty cursor): with no seedDate, seed the cursor with each
+//  3. Cold start (empty cursor): with coldStartEmit, emit for every in-scope
+//     issue (the one-shot Job path — an ephemeral cursor must not silently
+//     suppress the pass); otherwise with no seedDate, seed the cursor with each
 //     in-scope issue's current date and emit nothing; with a seedDate, seed the
 //     baseline (every in-scope issue → seedDate) and fall through so the first
 //     poll emits for every issue dated after the seed while pre-seed issues stay
@@ -102,12 +107,18 @@ func (w *watcher) Poll(ctx context.Context) error {
 	w.metrics.IncIssuesScanned(len(issues))
 
 	coldStart := len(cursor.Seen) == 0
-	if coldStart && w.seedDate == "" {
+	switch {
+	case coldStart && w.coldStartEmit:
+		// A one-shot Job can start with an empty cursor — no PVC, or a PVC that
+		// was recreated. Seeding would file nothing and leave the pass silently
+		// dead until each issue next fires, so emit for every in-scope issue and
+		// let the cursor start from this run's state.
+		glog.V(2).Infof("cold-start emit issues=%d", len(issues))
+	case coldStart && w.seedDate == "":
 		w.seedCursor(ctx, cursor, issues)
 		w.metrics.IncPollCycle("success")
 		return nil
-	}
-	if coldStart && w.seedDate != "" {
+	case coldStart && w.seedDate != "":
 		w.seedBaseline(cursor, issues)
 	}
 

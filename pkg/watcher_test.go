@@ -67,7 +67,22 @@ var _ = Describe("pkg.Watcher.Poll", func() {
 			pkg.TaskConfig{Stage: "prod", Assignee: "sentry-issue-analyzer"},
 			allowlist,
 			seedDate,
-			nil, // heartbeat check disabled — covered by heartbeat_test.go
+			false, // cold-start emit off — the long-running watcher seeds on first poll
+			nil,   // heartbeat check disabled — covered by heartbeat_test.go
+		)
+	}
+
+	newColdStartWatcher := func() pkg.Watcher {
+		return pkg.NewWatcher(
+			client,
+			publisher,
+			metrics,
+			pkg.NewFileCursorStore(cursorPath),
+			pkg.TaskConfig{Stage: "prod", Assignee: "sentry-issue-analyzer"},
+			allowlist,
+			"",
+			true, // cold-start emit on — the one-shot Job path
+			nil,
 		)
 	}
 
@@ -106,6 +121,31 @@ var _ = Describe("pkg.Watcher.Poll", func() {
 			Expect(loadedCursor().Seen).To(Equal(map[string]string{
 				"SENTRY-TEST-1": "2026-08-23",
 				"SENTRY-TEST-2": "2026-08-22",
+			}))
+		})
+	})
+
+	Context("cold start with cold-start emit enabled (one-shot Job path)", func() {
+		BeforeEach(func() {
+			w = newColdStartWatcher()
+			client.UnresolvedIssuesReturns([]pkg.Issue{
+				issue("SENTRY-TEST-1", "nuke-prod", "2026-08-23T04:00:00Z"),
+				issue("SENTRY-TEST-2", "hell", "2026-08-22T10:00:00Z"),
+				issue("SENTRY-TEST-3", "quant", "2026-08-22T10:00:00Z"),
+			}, nil)
+			publisher.PublishCreateReturns(true)
+		})
+
+		It("emits for every in-scope issue instead of seeding silently", func() {
+			Expect(w.Poll(ctx)).To(Succeed())
+
+			Expect(publisher.PublishCreateCallCount()).To(Equal(3))
+			Expect(metrics.IncPollCycleArgsForCall(0)).To(Equal("success"))
+
+			Expect(loadedCursor().Seen).To(Equal(map[string]string{
+				"SENTRY-TEST-1": "2026-08-23",
+				"SENTRY-TEST-2": "2026-08-22",
+				"SENTRY-TEST-3": "2026-08-22",
 			}))
 		})
 	})

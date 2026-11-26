@@ -47,11 +47,12 @@ type application struct {
 	SentryDSN   string `required:"false" arg:"sentry-dsn"   env:"SENTRY_DSN"   usage:"SentryDSN"    display:"length"`
 	SentryProxy string `required:"false" arg:"sentry-proxy" env:"SENTRY_PROXY" usage:"Sentry Proxy"`
 
-	Listen         string           `required:"false" arg:"listen"          env:"LISTEN"          usage:"HTTP listen address (healthz/readiness/metrics)"                                                                                                                                                                            default:":9090"`
+	Listen         string           `required:"false" arg:"listen"          env:"LISTEN"          usage:"HTTP listen address (healthz/readiness/metrics)"                                                                                                                                                                                                  default:":9090"`
 	Stage          string           `required:"true"  arg:"stage"           env:"STAGE"           usage:"Deployment stage (dev|prod)"`
-	CronExpression string           `required:"false" arg:"cron-expression" env:"CRON_EXPRESSION" usage:"Cron expression (6-field, seconds-first) determining when the scan runs; uses the pod's local timezone (UTC by default)"                                                                                                    default:"0 0 0 * * ?"`
-	CursorPath     string           `required:"false" arg:"cursor-path"     env:"CURSOR_PATH"     usage:"Cursor persistence path (mount a PVC)"                                                                                                                                                                                      default:"/data/cursor.json"`
+	CronExpression string           `required:"false" arg:"cron-expression" env:"CRON_EXPRESSION" usage:"Cron expression (6-field, seconds-first) determining when the scan runs; uses the pod's local timezone (UTC by default)"                                                                                                                          default:"0 0 0 * * ?"`
+	CursorPath     string           `required:"false" arg:"cursor-path"     env:"CURSOR_PATH"     usage:"Cursor persistence path (mount a PVC)"                                                                                                                                                                                                            default:"/data/cursor.json"`
 	SeedDate       string           `required:"false" arg:"seed-date"       env:"SEED_DATE"       usage:"Optional UTC date (2006-01-02) to seed the cursor with on cold-start instead of the current state; makes the first poll emit a task for every in-scope active issue dated after it. Empty = seed to current, emit nothing."`
+	ColdStartEmit  bool             `required:"false" arg:"cold-start-emit" env:"COLD_START_EMIT" usage:"Emit for every in-scope issue when the cursor is empty, instead of seeding silently. For a one-shot Job whose cursor may be absent or recreated; leave false for the long-running watcher, which seeds once and then emits only on new activity."`
 	KafkaBrokers   libkafka.Brokers `required:"true"  arg:"kafka-brokers"   env:"KAFKA_BROKERS"   usage:"Comma-separated Kafka broker list"`
 
 	SentryURL      string `required:"false" arg:"sentry-url"       env:"SENTRY_URL"       usage:"Base URL of the Sentry org"                                                                                                                                                                    default:"https://bborbe.sentry.io"`
@@ -66,7 +67,7 @@ type application struct {
 	// in the past and the check would pass forever after the first event.
 	HeartbeatMaxAge string `required:"false" arg:"heartbeat-max-age" env:"HEARTBEAT_MAX_AGE" usage:"How old the newest heartbeat may be and still count as present (Go duration, e.g. 6h); should match N. Parsed always, applied only when HEARTBEAT_QUERY is set." default:"6h"`
 
-	TaskAssignee string `required:"true"  arg:"task-assignee" env:"TASK_ASSIGNEE" usage:"Frontmatter assignee — must name a deployed agent Config, never a task type"                                                                                  default:"sentry-analyzer-agent"`
+	TaskAssignee string `required:"true"  arg:"task-assignee" env:"TASK_ASSIGNEE" usage:"Frontmatter assignee — must name a deployed agent Config, never a task type"                                                                                     default:"sentry-analyzer-agent"`
 	TaskStatus   string `required:"true"  arg:"task-status"   env:"TASK_STATUS"   usage:"Frontmatter status for published sentry-issue-analyzer tasks"                                                                                                    default:"in_progress"`
 	TaskPhase    string `required:"true"  arg:"task-phase"    env:"TASK_PHASE"    usage:"Frontmatter phase for published sentry-issue-analyzer tasks"                                                                                                     default:"planning"`
 	TaskSuffix   string `required:"false" arg:"task-suffix"   env:"TASK_SUFFIX"   usage:"Optional suffix appended to sentry task titles/filenames as ' - suffix'; empty = no suffix. Use distinct values per deployment to prevent task-file collisions."`
@@ -186,6 +187,7 @@ func (a *application) Run(ctx context.Context, _ libsentry.Client) error {
 		},
 		projects,
 		a.SeedDate,
+		a.ColdStartEmit,
 		sentryCfg,
 		heartbeat,
 	)

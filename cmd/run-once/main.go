@@ -56,10 +56,11 @@ type Application struct {
 	SentryDSN   string `required:"false" arg:"sentry-dsn"   env:"SENTRY_DSN"   usage:"SentryDSN"    display:"length"`
 	SentryProxy string `required:"false" arg:"sentry-proxy" env:"SENTRY_PROXY" usage:"Sentry Proxy"`
 
-	Stage        string           `required:"true"  arg:"stage"         env:"STAGE"         usage:"Deployment stage (dev|prod)"`
-	CursorPath   string           `required:"false" arg:"cursor-path"   env:"CURSOR_PATH"   usage:"Cursor persistence path"                                                                                                                                                                default:"/data/cursor.json"`
-	SeedDate     string           `required:"false" arg:"seed-date"     env:"SEED_DATE"     usage:"Optional UTC date (2006-01-02) to seed the cursor with on cold-start; makes the first poll emit for every in-scope active issue dated after it. Empty = seed to current, emit nothing."`
-	KafkaBrokers libkafka.Brokers `required:"true"  arg:"kafka-brokers" env:"KAFKA_BROKERS" usage:"Comma-separated Kafka broker list"`
+	Stage         string           `required:"true"  arg:"stage"           env:"STAGE"           usage:"Deployment stage (dev|prod)"`
+	CursorPath    string           `required:"false" arg:"cursor-path"     env:"CURSOR_PATH"     usage:"Cursor persistence path"                                                                                                                                                                                              default:"/data/cursor.json"`
+	SeedDate      string           `required:"false" arg:"seed-date"       env:"SEED_DATE"       usage:"Optional UTC date (2006-01-02) to seed the cursor with on cold-start; makes the first poll emit for every in-scope active issue dated after it. Empty = seed to current, emit nothing."`
+	ColdStartEmit bool             `required:"false" arg:"cold-start-emit" env:"COLD_START_EMIT" usage:"Emit for every in-scope issue when the cursor is empty, instead of seeding silently. A one-shot Job's cursor may be absent or recreated, and seeding would leave the pass silently dead until each issue next fires."`
+	KafkaBrokers  libkafka.Brokers `required:"true"  arg:"kafka-brokers"   env:"KAFKA_BROKERS"   usage:"Comma-separated Kafka broker list"`
 
 	SentryURL      string `required:"false" arg:"sentry-url"       env:"SENTRY_URL"       usage:"Base URL of the Sentry org"                                                                               default:"https://bborbe.sentry.io"`
 	SentryOrg      string `required:"false" arg:"sentry-org"       env:"SENTRY_ORG"       usage:"Sentry org slug"                                                                                          default:"bborbe"`
@@ -93,6 +94,7 @@ type WatcherFunc func(
 	cfg pkg.TaskConfig,
 	projectAllowlist []string,
 	seedDate string,
+	coldStartEmit bool,
 	sentryCfg pkg.SentryConfig,
 	heartbeat pkg.HeartbeatChecker,
 ) pkg.Watcher
@@ -172,6 +174,7 @@ func (a *Application) Run(ctx context.Context, _ libsentry.Client) error {
 		},
 		projects,
 		a.SeedDate,
+		a.ColdStartEmit,
 		sentryCfg,
 		heartbeat,
 	)

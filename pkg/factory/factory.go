@@ -68,6 +68,7 @@ func CreateWatcher(
 	cfg pkg.TaskConfig,
 	projectAllowlist []string,
 	seedDate string,
+	coldStartEmit bool,
 	sentryCfg pkg.SentryConfig,
 	heartbeat pkg.HeartbeatChecker,
 ) pkg.Watcher {
@@ -82,6 +83,7 @@ func CreateWatcher(
 		cfg,
 		projectAllowlist,
 		seedDate,
+		coldStartEmit,
 		heartbeat,
 	)
 }
