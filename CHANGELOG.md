@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## v0.8.0
 
 - feat: ship `/run-once` in the image and select it with `MODE=once`, so a Schedule-driven Job can run a single Sentry poll cycle and exit. The image only carried the continuous watcher (`ENTRYPOINT ["/main"]`) and the agent `Config` CRD has no `command`/`args` field, so the executor could only start `/main`'s poll loop — a Job would never exit. `hack/entrypoint.sh` dispatches on `MODE`; with no `MODE` set the entrypoint is `/main`, so the StatefulSet is unchanged.
 - feat: add `COLD_START_EMIT`. `Poll` seeds an empty cursor with each issue's current date and emits nothing, which is right for the long-running watcher and wrong for a one-shot Job: a Job whose cursor is absent or recreated would seed and then stay silent until each issue next fires, with no error to show for it. When the flag is set and the cursor is empty, every in-scope issue is emitted and the cursor starts from that run's state. Default `false`.
