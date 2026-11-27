@@ -85,7 +85,10 @@ var _ = Describe("pkg.BuildCreateCommand", func() {
 		// fires. Pinned because the shipped default did exactly that until
 		// 2026-11-17.
 		cmd, err := pkg.BuildCreateCommand(
-			ctx, testIssue, "2026-08-23", pkg.TaskConfig{Stage: "dev", Assignee: pkg.DefaultTaskAssignee},
+			ctx,
+			testIssue,
+			"2026-08-23",
+			pkg.TaskConfig{Stage: "dev", Assignee: pkg.DefaultTaskAssignee},
 		)
 		Expect(err).NotTo(HaveOccurred())
 
